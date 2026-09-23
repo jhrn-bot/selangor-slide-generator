@@ -65,15 +65,19 @@ def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
 
 def write_cell(cell, text, bold=True, align_left=False, is_red=False, size=12):
     cell.text = ""
-    p = cell.text_frame.paragraphs[0]
-    p.alignment = PP_ALIGN.LEFT if align_left else PP_ALIGN.CENTER
-    run = p.add_run()
-    run.text = str(text)
-    run.font.size = Pt(size)
-    run.font.name = 'Calibri'
-    run.font.bold = bold
-    run.font.color.rgb = RGBColor(255, 0, 0) if is_red else NAVY
-    return p
+    tf = cell.text_frame
+    tf.word_wrap = True
+    lines = str(text).split('\n')
+    for idx, line_str in enumerate(lines):
+        p = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
+        p.alignment = PP_ALIGN.LEFT if align_left else PP_ALIGN.CENTER
+        run = p.add_run()
+        run.text = line_str
+        run.font.size = Pt(size)
+        run.font.name = 'Calibri'
+        run.font.bold = bold
+        run.font.color.rgb = RGBColor(255, 0, 0) if is_red else NAVY
+    return tf.paragraphs[0]
 
 st.title("📊 Selangor Epi Review Slide Generator")
 st.write(f"Target Output: **ME {epi_week:02d} / {year}** (Malaysia Time UTC+8)")
@@ -520,9 +524,14 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, epi_w
         for j, cell in enumerate(row.cells):
             set_cell_border(cell, NAVY)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i == 0 or j == 0 or i == len(table.rows) - 1:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248)
+            if i == 0:
+                # DARKER SLATE GREY FOR HEADER ROW
+                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(176, 190, 205)
+            elif j == 0 or i == len(table.rows) - 1:
+                # LIGHT GREY/BLUE FOR DAERAH COL & JUMLAH ROW
+                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(215, 225, 238)
             else:
+                # WHITE FOR DATA CELLS
                 cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
 
     bottom_banner = slide_daerah.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
