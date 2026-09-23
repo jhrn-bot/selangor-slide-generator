@@ -1,6 +1,2 @@
 streamlit
 python-pptx
-qrcode
-pillow
-pandas
-requests
