@@ -2,6 +2,7 @@ import datetime
 import io
 import os
 import urllib.request
+import base64
 import pandas as pd
 import streamlit as st
 from pptx import Presentation
@@ -191,21 +192,16 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     if os.path.exists("qr.png"):
         slide1.shapes.add_picture("qr.png", Inches(10.35), Inches(4.55), width=Inches(2.2))
 
-    # --- 3. Build Slide 2 (Analisa e-Notifikasi) ---
-    slide2_layout = prs.slide_layouts[6]
-    slide2 = prs.slides.add_slide(slide2_layout)
-    
-    slide_id = prs.slides._sldIdLst[-1]
-    prs.slides._sldIdLst.remove(slide_id)
-    prs.slides._sldIdLst.insert(1, slide_id)
+    # --- 3. Build Analisa e-Notifikasi (Appended as the last slide) ---
+    slide_last = prs.slides.add_slide(prs.slide_layouts[6])
 
     if os.path.exists("logo.png"):
-        slide2.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
+        slide_last.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
 
-    line = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
+    line = slide_last.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
-    txBox = slide2.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(8), Inches(0.8))
+    txBox = slide_last.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(8), Inches(0.8))
     p = txBox.text_frame.paragraphs[0]
     p.text = "Analisa e-Notifikasi"
     p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
@@ -215,7 +211,7 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     p2.font.size = Pt(16); p2.font.color.rgb = NAVY
 
     rows, cols = 7, 5
-    table_shape = slide2.shapes.add_table(rows, cols, Inches(1.15), Inches(1.7), Inches(11.0), Inches(4.7))
+    table_shape = slide_last.shapes.add_table(rows, cols, Inches(1.15), Inches(1.7), Inches(11.0), Inches(4.7))
     table = table_shape.table
 
     table.columns[0].width = Inches(2.2)
@@ -288,12 +284,12 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     now = datetime.datetime.now(myt_zone)
     timestamp_str = now.strftime("%d/%m/%Y @ %I.%M%p").upper()
     
-    txBox = slide2.shapes.add_textbox(Inches(0.1), Inches(6.9), Inches(10), Inches(0.4))
+    txBox = slide_last.shapes.add_textbox(Inches(0.1), Inches(6.9), Inches(10), Inches(0.4))
     p = txBox.text_frame.paragraphs[0]
     p.text = f"(Sumber : Sistem e-notifikasi, KKM muat turun pada ({timestamp_str}))"
     p.font.size = Pt(9); p.font.italic = True; p.font.name = 'Calibri'
     
-    bottom_banner = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.8), Inches(6.833), Inches(0.5))
+    bottom_banner = slide_last.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.8), Inches(6.833), Inches(0.5))
     bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
     p = bottom_banner.text_frame.paragraphs[0]
     p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
@@ -308,20 +304,36 @@ def generate_pptx(stats_semasa, stats_kumulatif):
 st.divider()
 
 if uploaded_file:
-    df_raw = pd.read_excel(uploaded_file)
-    st.success(f"Data loaded successfully: {len(df_raw)} records found.")
-    
-    if st.button("🚀 Generate Slide Deck", type="primary", use_container_width=True):
-        with st.spinner("Processing data and generating slides..."):
-            stats_semasa, stats_kumulatif = process_data(df_raw, epi_week)
-            pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif)
-            st.success(f"Slide deck ready! Includes custom Title Slide and Analisa e-Notifikasi for ME {epi_week:02d}.")
-            st.download_button(
-                label="📥 Download Presentation (.pptx)",
-                data=pptx_buffer,
-                file_name=f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx",
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                use_container_width=True
-            )
+    with st.spinner("Processing data and generating slides automatically..."):
+        df_raw = pd.read_excel(uploaded_file)
+        stats_semasa, stats_kumulatif = process_data(df_raw, epi_week)
+        pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif)
+        
+        st.success(f"Slide deck generated! The presentation has been successfully created for ME {epi_week:02d}.")
+
+        # Auto-download magic (Triggers browser download popup)
+        b64 = base64.b64encode(pptx_buffer.getvalue()).decode()
+        filename = f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx"
+        
+        st.markdown(
+            f"""
+            <a id="download-link" href="data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,{b64}" download="{filename}" style="display:none;">Download</a>
+            <script>
+                document.getElementById('download-link').click();
+            </script>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.info("Your download should start automatically. If it doesn't, click the button below:")
+        
+        # Fallback button
+        st.download_button(
+            label="📥 Manual Download",
+            data=pptx_buffer,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            use_container_width=True
+        )
 else:
-    st.info("⚠️ Please upload the Excel file to enable the Generate button.")
+    st.info("⚠️ Please upload the Excel file. The presentation will automatically generate and download once the file is uploaded.")
