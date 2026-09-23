@@ -93,8 +93,8 @@ def fetch_google_slides_pptx(file_id):
 
 # --- Data Processing Logic ---
 @st.cache_data
-def load_and_process_data(file_bytes, target_me):
-    df = pd.read_excel(file_bytes)
+def load_and_process_data(file, target_me):
+    df = pd.read_excel(file)
     col_me = df.columns[7]
     col_dt = df.columns[123] 
     col_br = df.columns[69]
@@ -150,7 +150,6 @@ def load_and_process_data(file_bytes, target_me):
         is_daftar_kes = df_dx[col_br].astype(str).str.strip().str.upper() == 'DAFTAR KES'
         is_mati = df_dx[col_bt].astype(str).str.strip().str.upper() == 'MATI'
         
-        # Calculations
         kumulatif_all_notif = len(df_dx)
         if kumulatif_all_notif == 0: continue
             
@@ -185,7 +184,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
         prs.slide_width = Inches(13.333)
         prs.slide_height = Inches(7.5)
 
-    # 1. Format existing tables
     for slide in prs.slides:
         for shape in slide.shapes:
             if shape.has_table:
@@ -197,7 +195,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
                             for run in paragraph.runs:
                                 run.font.size = Pt(11)
 
-    # 2. Build Slide 1 (Title Slide)
     if len(prs.slides) > 0:
         slide1 = prs.slides[0]
         for shape in list(slide1.shapes):
@@ -280,33 +277,27 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
     table.cell(0, 3).merge(table.cell(0, 4))
 
     row_labels = ["", "Jumlah Notifikasi", "Daftar Notifikasi", "Daftar Kes", "Abai Notifikasi", "Belum Ambil Tindakan", "Batal Daftar"]
-    
     for i in range(1, 7):
         write_cell(table.cell(i, 0), row_labels[i], bold=True)
 
     write_cell(table.cell(1, 1), f"{stats_semasa['total']:,}", bold=True)
     write_cell(table.cell(1, 3), f"{stats_kumulatif['total']:,}", bold=True)
-
     write_cell(table.cell(2, 1), f"{stats_semasa['daftar_notifikasi']:,}", bold=True)
     write_cell(table.cell(2, 2), stats_semasa['pct_daftar_notif'], bold=True)
     write_cell(table.cell(2, 3), f"{stats_kumulatif['daftar_notifikasi']:,}", bold=True)
     write_cell(table.cell(2, 4), stats_kumulatif['pct_daftar_notif'], bold=True)
-
     write_cell(table.cell(3, 1), f"{stats_semasa['daftar_kes']:,}", bold=True)
     write_cell(table.cell(3, 2), stats_semasa['pct_daftar_kes'], bold=True)
     write_cell(table.cell(3, 3), f"{stats_kumulatif['daftar_kes']:,}", bold=True)
     write_cell(table.cell(3, 4), stats_kumulatif['pct_daftar_kes'], bold=True)
-
     write_cell(table.cell(4, 1), f"{stats_semasa['abai']:,}", bold=True)
     write_cell(table.cell(4, 2), stats_semasa['pct_abai'], bold=True)
     write_cell(table.cell(4, 3), f"{stats_kumulatif['abai']:,}", bold=True)
     write_cell(table.cell(4, 4), stats_kumulatif['pct_abai'], bold=True)
-
     write_cell(table.cell(5, 1), f"{stats_semasa['belum']:,}", bold=True)
     write_cell(table.cell(5, 2), stats_semasa['pct_belum'], bold=True)
     write_cell(table.cell(5, 3), f"{stats_kumulatif['belum']:,}", bold=True)
     write_cell(table.cell(5, 4), stats_kumulatif['pct_belum'], bold=True)
-
     write_cell(table.cell(6, 1), f"{stats_semasa['batal']:,}", bold=True)
     write_cell(table.cell(6, 2), stats_semasa['pct_batal'], bold=True)
     write_cell(table.cell(6, 3), f"{stats_kumulatif['batal']:,}", bold=True)
@@ -339,7 +330,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
     p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'
     bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE 
 
-
     # --- 4. Build Bilangan Daftar Kes Mengikut Penyakit (Slide 3) ---
     slide_penyakit = prs.slides.add_slide(prs.slide_layouts[6])
 
@@ -358,29 +348,21 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
     p2.text = f"ME {epi_week:02d} / {year}"
     p2.font.size = Pt(16); p2.font.color.rgb = NAVY
 
-    # Cap at Top 19 for rendering size limits
     total_semasa = df_penyakit['Semasa'].sum() if not df_penyakit.empty else 0
     total_kumulatif = df_penyakit['Kumulatif'].sum() if not df_penyakit.empty else 0
     total_mati = df_penyakit['Mati'].sum() if not df_penyakit.empty else 0
-    if len(df_penyakit) > 19:
-        df_render = df_penyakit.head(19)
-    else:
-        df_render = df_penyakit
+    df_render = df_penyakit.head(19) if len(df_penyakit) > 19 else df_penyakit
 
     rows = len(df_render) + 2
     cols = 4
     table_shape = slide_penyakit.shapes.add_table(rows, cols, Inches(0.8), Inches(1.5), Inches(11.7), Inches(5.1))
     table = table_shape.table
-
     table.columns[0].width = Inches(3.5)
     table.columns[1].width = Inches(2.2)
     table.columns[2].width = Inches(2.8)
     table.columns[3].width = Inches(3.2)
 
-    headers = [
-        "Penyakit", f"ME {epi_week:02d}", f"≤ ME {epi_week:02d}/ {year}", 
-        "Peratus Daftar Kes\n(Bil Daftar Kes / Bil Notifikasi Kes Tersebut)"
-    ]
+    headers = ["Penyakit", f"ME {epi_week:02d}", f"≤ ME {epi_week:02d}/ {year}", "Peratus Daftar Kes\n(Bil Daftar Kes / Bil Notifikasi Kes Tersebut)"]
     for j, h in enumerate(headers):
         write_cell(table.cell(0, j), h, bold=True)
 
@@ -394,9 +376,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
             run = p.add_run()
             run.text = f" ({int(row['Mati'])})"
             run.font.color.rgb = RGBColor(255, 0, 0)
-            run.font.bold = True
-            run.font.size = Pt(10)
-            run.font.name = 'Calibri'
+            run.font.bold = True; run.font.size = Pt(10); run.font.name = 'Calibri'
             
         write_cell(table.cell(r_idx, 3), f"{int(row['Peratus'])}%", bold=True)
         
@@ -408,12 +388,9 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
         run = p.add_run()
         run.text = f" ({int(total_mati)})"
         run.font.color.rgb = RGBColor(255, 0, 0)
-        run.font.bold = True
-        run.font.size = Pt(10)
-        run.font.name = 'Calibri'
+        run.font.bold = True; run.font.size = Pt(10); run.font.name = 'Calibri'
     write_cell(table.cell(r_idx, 3), "", bold=True)
 
-    # Backgrounds and borders
     for i, row in enumerate(table.rows):
         for j, cell in enumerate(row.cells):
             set_cell_border(cell, NAVY)
@@ -429,7 +406,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
     p.font.size = Pt(9); p.font.bold = True; p.font.name = 'Calibri'
     p2 = txBox.text_frame.add_paragraph()
     p2.text = "*(Mati)"
-    p2.font.size = Pt(9); p2.font.bold = True; p2.font.color.rgb = RGBColor(255, 0, 0); p2.font.name = 'Calibri'
+    p2.font.size = Pt(9); p.font.bold = True; p.font.color.rgb = RGBColor(255, 0, 0); p.font.name = 'Calibri'
     
     bottom_banner = slide_penyakit.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.8), Inches(6.833), Inches(0.5))
     bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
@@ -447,15 +424,13 @@ st.divider()
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
-        file_bytes = uploaded_file.read()
-        total_rows, stats_semasa, stats_kumulatif, df_penyakit = load_and_process_data(file_bytes, epi_week)
+        total_rows, stats_semasa, stats_kumulatif, df_penyakit = load_and_process_data(uploaded_file, epi_week)
         pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year)
         
         st.success(f"Successfully processed {total_rows:,} records. Slide deck is ready!")
 
         filename = f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx"
         
-        # Auto-download magic
         b64 = base64.b64encode(pptx_buffer.getvalue()).decode()
         st.markdown(
             f"""
