@@ -15,6 +15,7 @@ st.set_page_config(
     layout="centered"
 )
 
+# The ID of your Google Slides presentation
 GOOGLE_SLIDES_ID = "1QFVgrEPqgiDditxLQhHRLapQOqaCjZnt"
 
 # --- Calculate Epid Week (Malaysia Time UTC+8) ---
@@ -51,15 +52,6 @@ def fetch_google_slides_pptx(file_id):
     with urllib.request.urlopen(req) as response:
         return io.BytesIO(response.read())
 
-def copy_slide_content(source_slide, target_slide):
-    for shape in source_slide.shapes:
-        try:
-            el = shape.element
-            new_el = el.clone()
-            target_slide.shapes._spTree.insert_element_before(new_el, 'p:extLst')
-        except Exception:
-            pass
-
 def generate_pptx():
     # 1. Fetch template presentation from Google Slides link
     try:
@@ -71,9 +63,23 @@ def generate_pptx():
         prs.slide_width = Inches(13.333)
         prs.slide_height = Inches(7.5)
 
-    # 2. Build or update Slide 1 (Title Slide)
+    # 2. Format tables on ALL slides (Size 11, Centered)
+    for slide_idx, slide in enumerate(prs.slides):
+        for shape in slide.shapes:
+            if shape.has_table:
+                for row in shape.table.rows:
+                    for cell in row.cells:
+                        # Ensure cell alignment is centered
+                        cell.vertical_anchor = 'middle' 
+                        for paragraph in cell.text_frame.paragraphs:
+                            paragraph.alignment = PP_ALIGN.CENTER
+                            for run in paragraph.runs:
+                                run.font.size = Pt(11)
+
+    # 3. Build or update Slide 1 (Title Slide)
     if len(prs.slides) > 0:
         slide = prs.slides[0]
+        # Remove all existing shapes on slide 1
         for shape in list(slide.shapes):
             sp = shape._element
             sp.getparent().remove(sp)
