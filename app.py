@@ -2,6 +2,7 @@ import datetime
 import io
 import os
 import urllib.request
+import base64
 import pandas as pd
 import streamlit as st
 from pptx import Presentation
@@ -24,7 +25,7 @@ VALID_DISTRICTS = [
     'KUALA LANGAT', 'KUALA SELANGOR', 'PETALING', 
     'SABAK BERNAM', 'SEPANG'
 ]
-NAVY = RGBColor(27, 54, 93)
+NAVY = RGBColor(27, 54, 93)  # Official Navy Blue
 
 # --- Calculate Epid Week (Malaysia Time UTC+8) ---
 def get_previous_epi_week():
@@ -79,9 +80,7 @@ def fetch_google_slides_pptx(file_id):
         return io.BytesIO(response.read())
 
 # --- Data Processing Logic ---
-@st.cache_data
-def load_and_process_data(file_bytes, target_me):
-    df = pd.read_excel(file_bytes)
+def process_data(df, target_me):
     col_me = df.columns[7]
     col_dt = df.columns[123] 
     col_br = df.columns[69]
@@ -116,11 +115,10 @@ def load_and_process_data(file_bytes, target_me):
             'pct_batal': f"{(batal/total*100):.2f}%" if total else "0.00%",
         }
         
-    return len(df), get_stats(df_semasa), get_stats(df_kumulatif)
+    return get_stats(df_semasa), get_stats(df_kumulatif)
 
 # --- Presentation Generation ---
-@st.cache_data
-def generate_pptx(stats_semasa, stats_kumulatif, epi_week, year):
+def generate_pptx(stats_semasa, stats_kumulatif):
     try:
         remote_buffer = fetch_google_slides_pptx(GOOGLE_SLIDES_ID)
         prs = Presentation(remote_buffer)
@@ -306,23 +304,36 @@ def generate_pptx(stats_semasa, stats_kumulatif, epi_week, year):
 st.divider()
 
 if uploaded_file:
-    with st.spinner("Processing data and generating slides..."):
-        file_bytes = uploaded_file.read()
-        total_rows, stats_semasa, stats_kumulatif = load_and_process_data(file_bytes, epi_week)
-        pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif, epi_week, year)
+    with st.spinner("Processing data and generating slides automatically..."):
+        df_raw = pd.read_excel(uploaded_file)
+        stats_semasa, stats_kumulatif = process_data(df_raw, epi_week)
+        pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif)
         
-        st.success(f"Successfully processed {total_rows:,} records. Slide deck is ready!")
+        st.success(f"Slide deck generated! The presentation has been successfully created for ME {epi_week:02d}.")
 
+        # Auto-download magic (Triggers browser download popup)
+        b64 = base64.b64encode(pptx_buffer.getvalue()).decode()
         filename = f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx"
         
-        # Shows a big download button immediately after the spinner finishes
+        st.markdown(
+            f"""
+            <a id="download-link" href="data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,{b64}" download="{filename}" style="display:none;">Download</a>
+            <script>
+                document.getElementById('download-link').click();
+            </script>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.info("Your download should start automatically. If it doesn't, click the button below:")
+        
+        # Fallback button
         st.download_button(
-            label="📥 Download Presentation (.pptx)",
+            label="📥 Manual Download",
             data=pptx_buffer,
             file_name=filename,
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            type="primary",
             use_container_width=True
         )
 else:
-    st.info("⚠️ Please upload the Excel file. The presentation will automatically generate once uploaded.")
+    st.info("⚠️ Please upload the Excel file. The presentation will automatically generate and download once the file is uploaded.")
