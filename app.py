@@ -10,6 +10,7 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.util import Inches, Pt
 from pptx.oxml.xmlchemy import OxmlElement
+from pptx.oxml.ns import qn
 
 st.set_page_config(
     page_title="Selangor Epi Review Slide Generator",
@@ -52,7 +53,7 @@ def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
     for line_type in ['a:lnL', 'a:lnR', 'a:lnT', 'a:lnB']:
-        ln = tcPr.find(line_type)
+        ln = tcPr.find(qn(line_type))
         if ln is None:
             ln = OxmlElement(line_type)
             tcPr.append(ln)
@@ -201,7 +202,6 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     if os.path.exists("logo.png"):
         slide2.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
 
-    # Vertical line separator next to Logo
     line = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
@@ -230,7 +230,7 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     for i, txt in enumerate(headers):
         cell = table.cell(0, i)
         cell.text = txt
-        cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248) # Light blue
+        cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248) 
 
     table.cell(0, 1).merge(table.cell(0, 2))
     table.cell(0, 3).merge(table.cell(0, 4))
@@ -239,57 +239,50 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     
     for i in range(1, 7):
         table.cell(i, 0).text = row_labels[i]
-        table.cell(i, 0).fill.solid(); table.cell(i, 0).fill.fore_color.rgb = RGBColor(226, 237, 248) # Light blue
+        table.cell(i, 0).fill.solid(); table.cell(i, 0).fill.fore_color.rgb = RGBColor(226, 237, 248) 
         for j in range(1, 5):
-             table.cell(i, j).fill.solid(); table.cell(i, j).fill.fore_color.rgb = RGBColor(255, 255, 255) # White background for data
+             table.cell(i, j).fill.solid(); table.cell(i, j).fill.fore_color.rgb = RGBColor(255, 255, 255) 
 
-    # Row 1: Jumlah
     table.cell(1, 1).text = f"{stats_semasa['total']:,}"
     table.cell(1, 2).fill.solid(); table.cell(1, 2).fill.fore_color.rgb = RGBColor(0, 0, 0)
     table.cell(1, 3).text = f"{stats_kumulatif['total']:,}"
     table.cell(1, 4).fill.solid(); table.cell(1, 4).fill.fore_color.rgb = RGBColor(0, 0, 0)
 
-    # Row 2: Daftar Notifikasi
     table.cell(2, 1).text = f"{stats_semasa['daftar_notifikasi']:,}"
     table.cell(2, 2).text = stats_semasa['pct_daftar_notif']
     table.cell(2, 3).text = f"{stats_kumulatif['daftar_notifikasi']:,}"
     table.cell(2, 4).text = stats_kumulatif['pct_daftar_notif']
 
-    # Row 3: Daftar Kes
     table.cell(3, 1).text = f"{stats_semasa['daftar_kes']:,}"
     table.cell(3, 2).text = stats_semasa['pct_daftar_kes']
     table.cell(3, 3).text = f"{stats_kumulatif['daftar_kes']:,}"
     table.cell(3, 4).text = stats_kumulatif['pct_daftar_kes']
 
-    # Row 4: Abai Notifikasi
     table.cell(4, 1).text = f"{stats_semasa['abai']:,}"
     table.cell(4, 2).text = stats_semasa['pct_abai']
     table.cell(4, 3).text = f"{stats_kumulatif['abai']:,}"
     table.cell(4, 4).text = stats_kumulatif['pct_abai']
 
-    # Row 5: Belum Ambil Tindakan
     table.cell(5, 1).text = f"{stats_semasa['belum']:,}"
     table.cell(5, 2).text = stats_semasa['pct_belum']
     table.cell(5, 3).text = f"{stats_kumulatif['belum']:,}"
     table.cell(5, 4).text = stats_kumulatif['pct_belum']
 
-    # Row 6: Batal Daftar
     table.cell(6, 1).text = f"{stats_semasa['batal']:,}"
     table.cell(6, 2).text = stats_semasa['pct_batal']
     table.cell(6, 3).text = f"{stats_kumulatif['batal']:,}"
     table.cell(6, 4).text = stats_kumulatif['pct_batal']
 
-    # Format Table Text & Borders
     for row in table.rows:
         for cell in row.cells:
-            set_cell_border(cell, (27, 54, 93)) # Set Navy Borders
+            set_cell_border(cell, (27, 54, 93))
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE 
             for paragraph in cell.text_frame.paragraphs:
                 paragraph.alignment = PP_ALIGN.CENTER
                 for run in paragraph.runs:
                     run.font.size = Pt(17)
                     run.font.name = 'Calibri'
-                    run.font.color.rgb = NAVY # Navy Text Color for everything
+                    run.font.color.rgb = NAVY 
                     
     myt_zone = datetime.timezone(datetime.timedelta(hours=8))
     now = datetime.datetime.now(myt_zone)
@@ -305,7 +298,6 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     p = bottom_banner.text_frame.paragraphs[0]
     p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
     p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'
-    # Vertically center the banner text
     bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE 
 
     buffer = io.BytesIO()
