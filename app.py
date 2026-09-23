@@ -107,11 +107,12 @@ def fetch_google_slides_pptx(file_id):
 @st.cache_data
 def load_and_process_data(file, target_me):
     df = pd.read_excel(file)
-    col_me = df.columns[5]   # Column F (0-indexed: 5)
-    col_dt = df.columns[123] 
-    col_br = df.columns[69]
-    col_bt = df.columns[71] 
-    col_dx = df.columns[127] 
+    col_me = df.columns[5]    # Column F (0-indexed: 5)
+    col_dt = df.columns[123]  # Column DT (0-indexed: 123)
+    col_br = df.columns[69]   # Column BR (0-indexed: 69)
+    col_bt = df.columns[71]   # Column BT (0-indexed: 71)
+    col_dx = df.columns[127]  # Column DX (0-indexed: 127)
+    col_dy = df.columns[128]  # Column DY (0-indexed: 128)
 
     df_clean = df[df[col_dt].isin(VALID_DISTRICTS)].copy()
     df_clean[col_me] = pd.to_numeric(df_clean[col_me], errors='coerce')
@@ -212,6 +213,8 @@ def load_and_process_data(file, target_me):
     if not df_district.empty:
         df_district = df_district.sort_values(by='Jumlah Notifikasi', ascending=False)
 
+    district_names = [d[0] for d in DISTRICT_ABBR]
+
     # Slide 5: Belum Ambil Tindakan by Diagnosis & District for current ME
     df_belum = df_clean[
         (df_clean[col_me] == target_me) & 
@@ -221,7 +224,6 @@ def load_and_process_data(file, target_me):
     df_belum[col_dx] = df_belum[col_dx].astype(str).str.strip().str.upper()
     df_belum[col_dx] = df_belum[col_dx].replace({'MONKEYPOX': 'MPOX'})
 
-    district_names = [d[0] for d in DISTRICT_ABBR]
     if not df_belum.empty:
         ct = pd.crosstab(df_belum[col_dx], df_belum[col_dt])
         ct = ct.reindex(columns=district_names, fill_value=0)
@@ -231,10 +233,29 @@ def load_and_process_data(file, target_me):
     else:
         ct = pd.DataFrame(columns=[col_dx] + district_names + ['JUM'])
 
-    return len(df), stats_semasa, stats_kumulatif, df_penyakit, df_district, ct
+    # Slide 6: Viral Hepatitis Subdiagnosis Belum Ambil Tindakan
+    df_hep = df_clean[
+        (df_clean[col_me] == target_me) & 
+        (df_clean[col_br].astype(str).str.strip().str.upper() == 'BELUM AMBIL TINDAKAN') &
+        (df_clean[col_dx].astype(str).str.strip().str.upper() == 'VIRAL HEPATITIS')
+    ].copy()
+
+    df_hep[col_dy] = df_hep[col_dy].fillna('').astype(str).str.strip()
+    df_hep[col_dy] = df_hep[col_dy].apply(lambda x: 'Tiada Subdiagnosis' if x == '' or x.upper() == 'NAN' else x)
+
+    if not df_hep.empty:
+        hep_ct = pd.crosstab(df_hep[col_dy], df_hep[col_dt])
+        hep_ct = hep_ct.reindex(columns=district_names, fill_value=0)
+        hep_ct['JUM'] = hep_ct.sum(axis=1)
+        hep_ct = hep_ct[hep_ct['JUM'] > 0]
+        hep_ct = hep_ct.sort_values(by=['JUM', hep_ct.index.name or 'index'], ascending=[False, True]).reset_index()
+    else:
+        hep_ct = pd.DataFrame(columns=[col_dy] + district_names + ['JUM'])
+
+    return len(df), stats_semasa, stats_kumulatif, df_penyakit, df_district, ct, hep_ct
 
 @st.cache_data
-def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, epi_week, year):
+def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, epi_week, year):
     try:
         remote_buffer = fetch_google_slides_pptx(GOOGLE_SLIDES_ID)
         prs = Presentation(remote_buffer)
@@ -579,7 +600,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     txBox = slide_belum.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(9.5), Inches(0.8))
     p = txBox.text_frame.paragraphs[0]
     p.text = "Senarai Kes Belum Ambil Tindakan Mengikut Diagnosis"
-    p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY  # UPDATED TITLE FONT SIZE TO 28
+    p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
     
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"ME {epi_week:02d} / {year}"
@@ -590,17 +611,14 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     table_shape = slide_belum.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0))
     table = table_shape.table
 
-    # Column Widths
     table.columns[0].width = Inches(2.333)
     for j in range(1, 11):
         table.columns[j].width = Inches(1.0)
 
-    # Row 0 Headers
     h0 = ["DIAGNOSIS"] + [d[1] for d in DISTRICT_ABBR] + ["JUM"]
     for j, txt in enumerate(h0):
         write_cell(table.cell(0, j), txt, bold=True, size=16)
 
-    # Row 1 Headers
     h1 = [""] + [f"ME{epi_week:02d}"] * 10
     for j, txt in enumerate(h1):
         if j > 0:
@@ -610,8 +628,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     write_cell(table.cell(0, 0), "DIAGNOSIS", bold=True, size=16)
 
     district_names = [d[0] for d in DISTRICT_ABBR]
-    
-    # Data Rows
     district_sums = {d: 0 for d in district_names}
     total_jum = 0
 
@@ -630,14 +646,12 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         write_cell(table.cell(r_idx, 10), str(jum_val), bold=True, size=16)
         total_jum += jum_val
 
-    # JUMLAH Row
     r_idx = rows - 1
     write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=16)
     for j, d_name in enumerate(district_names):
         write_cell(table.cell(r_idx, j + 1), str(district_sums[d_name]), bold=True, size=16)
     write_cell(table.cell(r_idx, 10), str(total_jum), bold=True, size=16)
 
-    # Formatting Table Colors & Borders
     for i, row in enumerate(table.rows):
         for j, cell in enumerate(row.cells):
             set_cell_border(cell, NAVY)
@@ -654,6 +668,85 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
     bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
 
+    # --- Slide 6: Viral Hepatitis Subdiagnosis Belum Ambil Tindakan ---
+    slide_hep = prs.slides.add_slide(prs.slide_layouts[6])
+
+    if os.path.exists("logo.png"):
+        slide_hep.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
+
+    line = slide_hep.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
+    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
+
+    txBox = slide_hep.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(9.5), Inches(0.8))
+    p = txBox.text_frame.paragraphs[0]
+    p.text = "Senarai Kes Belum Ambil Tindakan Mengikut Diagnosis"
+    p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
+    
+    p2 = txBox.text_frame.add_paragraph()
+    p2.text = f"ME {epi_week:02d} / {year}"
+    p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
+
+    rows = len(df_hep_ct) + 3
+    cols = 11
+    table_shape = slide_hep.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0))
+    table = table_shape.table
+
+    table.columns[0].width = Inches(2.333)
+    for j in range(1, 11):
+        table.columns[j].width = Inches(1.0)
+
+    h0 = ["DIAGNOSIS"] + [d[1] for d in DISTRICT_ABBR] + ["JUM"]
+    for j, txt in enumerate(h0):
+        write_cell(table.cell(0, j), txt, bold=True, size=16)
+
+    h1 = [""] + [f"ME{epi_week:02d}"] * 10
+    for j, txt in enumerate(h1):
+        if j > 0:
+            write_cell(table.cell(1, j), txt, bold=True, size=16)
+
+    table.cell(0, 0).merge(table.cell(1, 0))
+    write_cell(table.cell(0, 0), "DIAGNOSIS", bold=True, size=16)
+
+    district_sums = {d: 0 for d in district_names}
+    total_jum = 0
+
+    col_subdx_name = df_hep_ct.columns[0] if not df_hep_ct.empty else 'DIAGNOSIS'
+
+    for i, (_, row) in enumerate(df_hep_ct.iterrows()):
+        r_idx = i + 2
+        write_cell(table.cell(r_idx, 0), str(row[col_subdx_name]), bold=True, align_left=True, size=16)
+        row_jum = 0
+        for j, d_name in enumerate(district_names):
+            val = int(row[d_name]) if d_name in row else 0
+            write_cell(table.cell(r_idx, j + 1), str(val), bold=True, size=16)
+            district_sums[d_name] += val
+            row_jum += val
+        jum_val = int(row['JUM']) if 'JUM' in row else row_jum
+        write_cell(table.cell(r_idx, 10), str(jum_val), bold=True, size=16)
+        total_jum += jum_val
+
+    r_idx = rows - 1
+    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=16)
+    for j, d_name in enumerate(district_names):
+        write_cell(table.cell(r_idx, j + 1), str(district_sums[d_name]), bold=True, size=16)
+    write_cell(table.cell(r_idx, 10), str(total_jum), bold=True, size=16)
+
+    for i, row in enumerate(table.rows):
+        for j, cell in enumerate(row.cells):
+            set_cell_border(cell, NAVY)
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            if i in [0, 1] or j == 0 or i == len(table.rows) - 1:
+                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
+            else:
+                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+
+    bottom_banner = slide_hep.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
+    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
+    p = bottom_banner.text_frame.paragraphs[0]
+    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
+    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
+    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+
     buffer = io.BytesIO()
     prs.save(buffer)
     buffer.seek(0)
@@ -663,8 +756,8 @@ st.divider()
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
-        total_rows, stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct = load_and_process_data(uploaded_file, epi_week)
-        pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, epi_week, year)
+        total_rows, stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct = load_and_process_data(uploaded_file, epi_week)
+        pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, epi_week, year)
         
         st.success(f"Successfully processed {total_rows:,} records. Slide deck is ready!")
 
