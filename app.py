@@ -36,11 +36,19 @@ DISTRICT_ABBR = [
     ('SEPANG', 'SPG')
 ]
 
-# EXPLICIT INCLUSION LIST (NO LEPTOSPIROSIS)
+# INCLUSION LIST FOR SLIDE 7 (≤ 7 HARI)
 INCLUSION_DIAGNOSES = (
     'HFMD', 'FOOD POISONING', 'COVID-19', 
     'MERS-COV', 'DIPHTERIA', 'DIPHTHERIA', 'CHIKUNGUNYA', 
     'MALARIA', 'LEPROSY'
+)
+
+# EXCLUSION LIST FOR SLIDE 8 (≤ 14 HARI): EXCLUDES SLIDE 7 DIAGNOSES PLUS DENGUE/DHF, MALARIA, MEASLES, HIV/AIDS
+EXCLUSION_DIAGNOSES_14 = (
+    'HFMD', 'FOOD POISONING', 'COVID-19', 
+    'MERS-COV', 'DIPHTERIA', 'DIPHTHERIA', 'CHIKUNGUNYA', 
+    'MALARIA', 'LEPROSY', 'DENGUE/DHF', 'DENGUE', 
+    'MEASLES', 'HIV/AIDS', 'HIV'
 )
 
 NAVY = RGBColor(27, 54, 93)
@@ -112,7 +120,7 @@ def fetch_google_slides_pptx(file_id):
         return io.BytesIO(response.read())
 
 @st.cache_data
-def load_and_process_data(file, target_me, inclusion_tuple):
+def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     df = pd.read_excel(file)
     col_me = df.columns[5]    # Column F (0-indexed: 5)
     col_dt = df.columns[123]  # Column DT (0-indexed: 123)
@@ -259,7 +267,7 @@ def load_and_process_data(file, target_me, inclusion_tuple):
     else:
         hep_ct = pd.DataFrame(columns=[col_dy] + district_names + ['JUM'])
 
-    # Slide 7: Daftar Notifikasi (Specific Inclusion Diagnoses)
+    # Slide 7: Daftar Notifikasi (Specific Inclusion Diagnoses ≤ 7 hari)
     df_dn = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
@@ -277,11 +285,11 @@ def load_and_process_data(file, target_me, inclusion_tuple):
     else:
         dn_ct = pd.DataFrame(columns=[col_dx] + district_names + ['JUM'])
 
-    # Slide 8: Daftar Notifikasi (Exclusion of specified inclusion list)
+    # Slide 8: Daftar Notifikasi (Exclusion Diagnoses ≤ 14 hari)
     df_dn_exc = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
-        (~df_clean[col_dx].astype(str).str.strip().str.upper().isin(inclusion_tuple))
+        (~df_clean[col_dx].astype(str).str.strip().str.upper().isin(exclusion_tuple))
     ].copy()
 
     df_dn_exc[col_dx] = df_dn_exc[col_dx].astype(str).str.strip().str.upper()
@@ -957,8 +965,10 @@ st.divider()
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
-        # PASSING INCLUSION_DIAGNOSES TUPLE TO FORCE ST.CACHE_DATA INVALIDATION
-        total_rows, stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct = load_and_process_data(uploaded_file, epi_week, INCLUSION_DIAGNOSES)
+        # PASSING BOTH TUPLES TO ENSURE FRESH CALCULATION WITHOUT CACHE STALENESS
+        total_rows, stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct = load_and_process_data(
+            uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14
+        )
         pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, epi_week, year)
         
         st.success(f"Successfully processed {total_rows:,} records. Slide deck is ready!")
