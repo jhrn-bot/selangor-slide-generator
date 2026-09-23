@@ -2,7 +2,6 @@ import datetime
 import io
 import os
 import urllib.request
-import base64
 import pandas as pd
 import streamlit as st
 from pptx import Presentation
@@ -483,7 +482,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, epi_w
         "Batal Daftar", "%", "Belum\nAmbil\nTindakan", "%"
     ]
     for j, h in enumerate(headers):
-        write_cell(table.cell(0, j), h, bold=True, size=11)
+        write_cell(table.cell(0, j), h, bold=True, size=12) # HEADER FONT SIZE SET TO 12
 
     tot_jml = df_district['Jumlah Notifikasi'].sum() if not df_district.empty else 0
     tot_notif = df_district['Daftar Notifikasi'].sum() if not df_district.empty else 0
@@ -526,10 +525,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, epi_w
             set_cell_border(cell, NAVY)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
             if i == 0 or j == 0 or i == len(table.rows) - 1:
-                # LIGHT GREY #D3D3D3 FOR HEADER ROW, DAERAH COL & JUMLAH ROW
                 cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
             else:
-                # WHITE FOR DATA CELLS
                 cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
 
     bottom_banner = slide_daerah.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
