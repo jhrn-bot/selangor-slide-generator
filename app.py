@@ -52,7 +52,7 @@ def generate_pptx():
     
     NAVY = RGBColor(16, 44, 87)
     
-    # --- 1. Navy Corner Brackets (Drawn first so central card overlays inner edges) ---
+    # --- 1. Navy Corner Brackets ---
     # Top-Left Bracket
     tl_h = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.2), Inches(0.2), Inches(2.2), Inches(0.25))
     tl_h.fill.solid(); tl_h.fill.fore_color.rgb = NAVY; tl_h.line.fill.background()
@@ -90,7 +90,7 @@ def generate_pptx():
         slide.shapes.add_picture("logo.png", Inches(5.66), Inches(0.85), width=Inches(2.0))
 
     # Main Title
-    txBox = slide.shapes.add_textbox(Inches(1.5), Inches(2.95), Inches(10.333), Inches(1.2))
+    txBox = slide.shapes.add_textbox(Inches(1.5), Inches(2.85), Inches(10.333), Inches(1.2))
     tf = txBox.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
@@ -102,13 +102,13 @@ def generate_pptx():
     p.alignment = PP_ALIGN.CENTER
 
     # Short Line Divider
-    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(5.916), Inches(4.15), Inches(1.5), Inches(0.03))
+    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(5.916), Inches(4.05), Inches(1.5), Inches(0.03))
     line.fill.solid()
     line.fill.fore_color.rgb = RGBColor(200, 200, 200)
     line.line.fill.background()
 
     # Subtitle Text (ME Week)
-    txBox2 = slide.shapes.add_textbox(Inches(1.5), Inches(4.35), Inches(10.333), Inches(0.8))
+    txBox2 = slide.shapes.add_textbox(Inches(1.5), Inches(4.25), Inches(10.333), Inches(0.8))
     tf2 = txBox2.text_frame
     p2 = tf2.paragraphs[0]
     p2.text = f"ME {epi_week:02d} / {year}"
@@ -118,9 +118,14 @@ def generate_pptx():
     p2.font.color.rgb = NAVY
     p2.alignment = PP_ALIGN.CENTER
 
-    # Fixed QR Code
+    # --- 4. QR Code Positioned in Exact Bottom-Right Corner ---
     if os.path.exists("qr.png"):
-        slide.shapes.add_picture("qr.png", Inches(9.6), Inches(3.75), width=Inches(2.4))
+        slide.shapes.add_picture(
+            "qr.png", 
+            Inches(10.35),  # Aligned horizontally to bottom right
+            Inches(4.55),   # Aligned vertically to bottom right
+            width=Inches(2.2)
+        )
 
     buffer = io.BytesIO()
     prs.save(buffer)
