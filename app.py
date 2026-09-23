@@ -63,7 +63,7 @@ def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
         solidFill.append(srgbClr)
         ln.append(solidFill)
 
-def write_cell(cell, text, bold=False, align_left=False, is_red=False, size=10):
+def write_cell(cell, text, bold=True, align_left=False, is_red=False, size=10):
     cell.text = ""
     p = cell.text_frame.paragraphs[0]
     p.alignment = PP_ALIGN.LEFT if align_left else PP_ALIGN.CENTER
@@ -71,7 +71,7 @@ def write_cell(cell, text, bold=False, align_left=False, is_red=False, size=10):
     run.text = str(text)
     run.font.size = Pt(size)
     run.font.name = 'Calibri'
-    run.font.bold = bold
+    run.font.bold = bold # NOW ALWAYS TRUE BY DEFAULT
     run.font.color.rgb = RGBColor(255, 0, 0) if is_red else NAVY
     return p
 
@@ -252,7 +252,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
     
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"ME {epi_week:02d} /{year}"
-    p2.font.size = Pt(16); p2.font.color.rgb = NAVY
+    p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
 
     rows, cols = 7, 5
     table_shape = slide_notif.shapes.add_table(rows, cols, Inches(1.15), Inches(1.7), Inches(11.0), Inches(4.7))
@@ -314,13 +314,13 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
     txBox = slide_notif.shapes.add_textbox(Inches(0.1), Inches(6.9), Inches(10), Inches(0.4))
     p = txBox.text_frame.paragraphs[0]
     p.text = f"(Sumber : Sistem e-notifikasi, KKM muat turun pada ({timestamp_str}))"
-    p.font.size = Pt(9); p.font.italic = True; p.font.name = 'Calibri'
+    p.font.size = Pt(9); p.font.italic = True; p.font.name = 'Calibri'; p.font.bold = True
     
     bottom_banner = slide_notif.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.8), Inches(6.833), Inches(0.5))
     bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
     p = bottom_banner.text_frame.paragraphs[0]
     p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'
+    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
     bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE 
 
     # --- Slide 3: Bilangan Daftar Kes Mengikut Penyakit ---
@@ -339,7 +339,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
     
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"ME {epi_week:02d} / {year}"
-    p2.font.size = Pt(16); p2.font.color.rgb = NAVY
+    p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
 
     total_semasa = df_penyakit['Semasa'].sum() if not df_penyakit.empty else 0
     total_kumulatif = df_penyakit['Kumulatif'].sum() if not df_penyakit.empty else 0
@@ -361,7 +361,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
 
     for i, (_, row) in enumerate(df_render.iterrows()):
         r_idx = i + 1
-        # BOLD text for ALL cells
         write_cell(table.cell(r_idx, 0), str(row['Penyakit']), bold=True, align_left=True) 
         write_cell(table.cell(r_idx, 1), f"{int(row['Semasa']):,}", bold=True) 
         
@@ -389,7 +388,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
         for j, cell in enumerate(row.cells):
             set_cell_border(cell, NAVY)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            # FILL BACKGROUND: Only header row (0) and JUMLAH row (last row). All internal columns are white.
             if i == 0 or i == len(table.rows) - 1:
                 cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248)
             else:
@@ -401,13 +399,13 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
     p.font.size = Pt(9); p.font.bold = True; p.font.name = 'Calibri'; p.font.color.rgb = RGBColor(0, 0, 0) 
     p2 = txBox.text_frame.add_paragraph()
     p2.text = "*(Mati)"
-    p2.font.size = Pt(9); p.font.bold = True; p.font.color.rgb = RGBColor(255, 0, 0); p.font.name = 'Calibri' 
+    p2.font.size = Pt(9); p.font.bold = True; p.font.color.rgb = RGBColor(255, 0, 0); p2.font.name = 'Calibri' 
     
     bottom_banner = slide_penyakit.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
     bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
     p = bottom_banner.text_frame.paragraphs[0]
     p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'
+    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
     bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE 
 
     buffer = io.BytesIO()
