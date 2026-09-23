@@ -61,19 +61,13 @@ def fetch_google_slides_pptx(file_id):
 
 # --- Data Processing Logic ---
 def process_data(df, target_me):
-    # Map letters to columns (H=7, DT=123, BR=69 - 0-indexed)
-    # Using column index to avoid hardcoded column names changing
     col_me = df.columns[7]
     col_dt = df.columns[123] 
     col_br = df.columns[69]
 
-    # Filter for valid districts
     df_clean = df[df[col_dt].isin(VALID_DISTRICTS)].copy()
-    
-    # Ensure ME is numeric
     df_clean[col_me] = pd.to_numeric(df_clean[col_me], errors='coerce')
     
-    # Filter Semasa (Current ME) and Kumulatif (Up to Current ME)
     df_semasa = df_clean[df_clean[col_me] == target_me]
     df_kumulatif = df_clean[df_clean[col_me] <= target_me]
     
@@ -114,7 +108,7 @@ def generate_pptx(stats_semasa, stats_kumulatif):
         prs.slide_width = Inches(13.333)
         prs.slide_height = Inches(7.5)
 
-    # 1. Format existing tables on ALL slides from Google (Size 11, Centered)
+    # 1. Format existing tables
     for slide in prs.slides:
         for shape in slide.shapes:
             if shape.has_table:
@@ -126,7 +120,7 @@ def generate_pptx(stats_semasa, stats_kumulatif):
                             for run in paragraph.runs:
                                 run.font.size = Pt(11)
 
-    # 2. Build Slide 1 (Title Slide) - Overwrite existing first slide
+    # 2. Build Slide 1 (Title Slide)
     if len(prs.slides) > 0:
         slide1 = prs.slides[0]
         for shape in list(slide1.shapes):
@@ -137,7 +131,6 @@ def generate_pptx(stats_semasa, stats_kumulatif):
 
     NAVY = RGBColor(16, 44, 87)
 
-    # Title Slide Bracket Borders
     slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.2), Inches(0.2), Inches(2.2), Inches(0.25)).fill.solid()
     slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
     slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.2), Inches(0.2), Inches(0.25), Inches(1.8)).fill.solid()
@@ -158,7 +151,6 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(12.883), Inches(5.5), Inches(0.25), Inches(1.8)).fill.solid()
     slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
 
-    # Title Slide Card
     card = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.42), Inches(0.42), Inches(12.493), Inches(6.66))
     card.fill.solid(); card.fill.fore_color.rgb = RGBColor(255, 255, 255)
     card.line.color.rgb = RGBColor(210, 210, 210); card.line.width = Pt(1.5)
@@ -166,7 +158,6 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     if os.path.exists("logo.png"):
         slide1.shapes.add_picture("logo.png", Inches(5.66), Inches(0.85), width=Inches(2.0))
 
-    # Title & Subtitle
     txBox = slide1.shapes.add_textbox(Inches(1.5), Inches(2.85), Inches(10.333), Inches(1.2))
     p = txBox.text_frame.paragraphs[0]
     p.text = "Selangor Epidemiology Review"; p.font.size = Pt(50); p.font.bold = True
@@ -184,19 +175,17 @@ def generate_pptx(stats_semasa, stats_kumulatif):
         slide1.shapes.add_picture("qr.png", Inches(10.35), Inches(4.55), width=Inches(2.2))
 
     # --- 3. Build Slide 2 (Analisa e-Notifikasi) ---
-    slide2_layout = prs.slide_layouts[6] # Blank
-    
-    # Insert at position 1 (right after title slide). 
-    # Workaround: add new slide, move it to index 1.
+    slide2_layout = prs.slide_layouts[6]
     slide2 = prs.slides.add_slide(slide2_layout)
-    element = slide2._element
-    prs.slides._sldIdLst.remove(element)
-    prs.slides._sldIdLst.insert(1, element)
+    
+    # REVISED SLIDE REORDERING FIX
+    slide_id = prs.slides._sldIdLst[-1]
+    prs.slides._sldIdLst.remove(slide_id)
+    prs.slides._sldIdLst.insert(1, slide_id)
 
     if os.path.exists("logo.png"):
         slide2.shapes.add_picture("logo.png", Inches(0.5), Inches(0.4), width=Inches(1.5))
 
-    # Slide 2 Title
     txBox = slide2.shapes.add_textbox(Inches(2.2), Inches(0.5), Inches(8), Inches(0.8))
     p = txBox.text_frame.paragraphs[0]
     p.text = "Analisa e-Notifikasi"
@@ -206,19 +195,16 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     p2.text = f"ME {epi_week:02d} /{year}"
     p2.font.size = Pt(18); p2.font.color.rgb = NAVY
 
-    # Create Table
     rows, cols = 6, 5
     table_shape = slide2.shapes.add_table(rows, cols, Inches(1.0), Inches(1.8), Inches(11.333), Inches(4.5))
     table = table_shape.table
 
-    # Column Widths
     table.columns[0].width = Inches(2.333)
     table.columns[1].width = Inches(2.25)
     table.columns[2].width = Inches(2.25)
     table.columns[3].width = Inches(2.25)
     table.columns[4].width = Inches(2.25)
 
-    # Headers
     headers = [
         "Minggu Epid", f"ME {epi_week:02d} (Semasa)", "", f"Kumulatif Sehingga ME {epi_week:02d}", ""
     ]
@@ -227,51 +213,41 @@ def generate_pptx(stats_semasa, stats_kumulatif):
         cell.text = txt
         cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(230, 240, 250)
 
-    # Merge header cells
     table.cell(0, 1).merge(table.cell(0, 2))
     table.cell(0, 3).merge(table.cell(0, 4))
 
     row_labels = ["Jumlah Notifikasi", "Daftar Notifikasi", "Daftar Kes", "Abai Notifikasi", "Belum Ambil Tindakan", "Batal Daftar"]
     
-    # Populate Rows
     for i in range(1, 6):
-        # Column 0
         table.cell(i, 0).text = row_labels[i]
         table.cell(i, 0).fill.solid(); table.cell(i, 0).fill.fore_color.rgb = RGBColor(230, 240, 250)
 
-    # Populate Data
-    # Row 1 (Jumlah)
     table.cell(1, 1).text = f"{stats_semasa['total']:,}"
-    table.cell(1, 2).fill.solid(); table.cell(1, 2).fill.fore_color.rgb = RGBColor(0, 0, 0) # Black box
+    table.cell(1, 2).fill.solid(); table.cell(1, 2).fill.fore_color.rgb = RGBColor(0, 0, 0)
     table.cell(1, 3).text = f"{stats_kumulatif['total']:,}"
-    table.cell(1, 4).fill.solid(); table.cell(1, 4).fill.fore_color.rgb = RGBColor(0, 0, 0) # Black box
+    table.cell(1, 4).fill.solid(); table.cell(1, 4).fill.fore_color.rgb = RGBColor(0, 0, 0)
 
-    # Row 2 (Daftar Notifikasi)
     table.cell(2, 1).text = f"{stats_semasa['daftar_notifikasi']:,}"
     table.cell(2, 2).text = stats_semasa['pct_daftar_notif']
     table.cell(2, 3).text = f"{stats_kumulatif['daftar_notifikasi']:,}"
     table.cell(2, 4).text = stats_kumulatif['pct_daftar_notif']
 
-    # Row 3 (Daftar Kes)
     table.cell(3, 1).text = f"{stats_semasa['daftar_kes']:,}"
     table.cell(3, 2).text = stats_semasa['pct_daftar_kes']
     table.cell(3, 3).text = f"{stats_kumulatif['daftar_kes']:,}"
     table.cell(3, 4).text = stats_kumulatif['pct_daftar_kes']
 
-    # Row 4 (Abai Notifikasi)
     table.cell(4, 1).text = f"{stats_semasa['abai']:,}"
     table.cell(4, 2).text = stats_semasa['pct_abai']
     table.cell(4, 3).text = f"{stats_kumulatif['abai']:,}"
     table.cell(4, 4).text = stats_kumulatif['pct_abai']
 
-    # Row 5 (Belum Ambil Tindakan / Batal Daftar)
     table.cell(5, 0).text = "Belum Ambil Tindakan\nBatal Daftar"
     table.cell(5, 1).text = f"{stats_semasa['belum']:,}\n{stats_semasa['batal']:,}"
     table.cell(5, 2).text = f"{stats_semasa['pct_belum']}\n{stats_semasa['pct_batal']}"
     table.cell(5, 3).text = f"{stats_kumulatif['belum']:,}\n{stats_kumulatif['batal']:,}"
     table.cell(5, 4).text = f"{stats_kumulatif['pct_belum']}\n{stats_kumulatif['pct_batal']}"
 
-    # Format Table Text
     for row in table.rows:
         for cell in row.cells:
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE 
@@ -281,7 +257,6 @@ def generate_pptx(stats_semasa, stats_kumulatif):
                     run.font.size = Pt(16)
                     run.font.name = 'Calibri'
                     
-    # Timestamp Footer (Current DateTime)
     myt_zone = datetime.timezone(datetime.timedelta(hours=8))
     now = datetime.datetime.now(myt_zone)
     timestamp_str = now.strftime("%d/%m/%Y @ %I.%M%p").upper()
@@ -291,19 +266,16 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     p.text = f"(Sumber : Sistem e-notifikasi, KKM muat turun pada ({timestamp_str}))"
     p.font.size = Pt(10); p.font.italic = True
     
-    # Bottom Right Blue Polygon Design
     bottom_banner = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
     bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
     p = bottom_banner.text_frame.paragraphs[0]
     p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
     p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT
 
-    # Save
     buffer = io.BytesIO()
     prs.save(buffer)
     buffer.seek(0)
     return buffer
-
 
 st.divider()
 
@@ -313,14 +285,9 @@ if uploaded_file:
     
     if st.button("🚀 Generate Slide Deck", type="primary", use_container_width=True):
         with st.spinner("Processing data and generating slides..."):
-            # Compute stats
             stats_semasa, stats_kumulatif = process_data(df_raw, epi_week)
-            
-            # Generate pptx
             pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif)
-            
             st.success(f"Slide deck ready! Includes custom Title Slide and Analisa e-Notifikasi for ME {epi_week:02d}.")
-            
             st.download_button(
                 label="📥 Download Presentation (.pptx)",
                 data=pptx_buffer,
