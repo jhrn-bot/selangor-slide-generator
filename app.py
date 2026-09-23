@@ -26,6 +26,7 @@ VALID_DISTRICTS = [
     'SABAK BERNAM', 'SEPANG'
 ]
 NAVY = RGBColor(27, 54, 93)
+LIGHT_GREY = RGBColor(211, 211, 211)  # #D3D3D3
 
 def get_previous_epi_week():
     myt_zone = datetime.timezone(datetime.timedelta(hours=8))
@@ -338,7 +339,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, epi_w
             set_cell_border(cell, NAVY)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE 
             if i == 0 or j == 0:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248)
+                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
             else:
                 cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
             if i == 1 and j in [2, 4]:
@@ -426,7 +427,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, epi_w
             set_cell_border(cell, NAVY)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
             if i == 0 or i == len(table.rows) - 1:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248)
+                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
             else:
                 cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
 
@@ -524,12 +525,9 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, epi_w
         for j, cell in enumerate(row.cells):
             set_cell_border(cell, NAVY)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i == 0:
-                # DARKER SLATE GREY FOR HEADER ROW
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(176, 190, 205)
-            elif j == 0 or i == len(table.rows) - 1:
-                # LIGHT GREY/BLUE FOR DAERAH COL & JUMLAH ROW
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(215, 225, 238)
+            if i == 0 or j == 0 or i == len(table.rows) - 1:
+                # LIGHT GREY #D3D3D3 FOR HEADER ROW, DAERAH COL & JUMLAH ROW
+                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
             else:
                 # WHITE FOR DATA CELLS
                 cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
