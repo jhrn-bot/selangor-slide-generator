@@ -95,7 +95,7 @@ def fetch_google_slides_pptx(file_id):
 @st.cache_data
 def load_and_process_data(file, target_me):
     df = pd.read_excel(file)
-    col_me = df.columns[7]
+    col_me = df.columns[5]   # Updated to Column F (0-indexed: 5)
     col_dt = df.columns[123] 
     col_br = df.columns[69]
     col_bt = df.columns[71] 
@@ -482,7 +482,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, epi_w
         "Batal Daftar", "%", "Belum\nAmbil\nTindakan", "%"
     ]
     for j, h in enumerate(headers):
-        write_cell(table.cell(0, j), h, bold=True, size=12) # HEADER FONT SIZE SET TO 12
+        write_cell(table.cell(0, j), h, bold=True, size=12)
 
     tot_jml = df_district['Jumlah Notifikasi'].sum() if not df_district.empty else 0
     tot_notif = df_district['Daftar Notifikasi'].sum() if not df_district.empty else 0
