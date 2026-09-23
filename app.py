@@ -361,17 +361,18 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
 
     for i, (_, row) in enumerate(df_render.iterrows()):
         r_idx = i + 1
+        # BOLD text for ALL cells
         write_cell(table.cell(r_idx, 0), str(row['Penyakit']), bold=True, align_left=True) 
-        write_cell(table.cell(r_idx, 1), f"{int(row['Semasa']):,}", bold=False) 
+        write_cell(table.cell(r_idx, 1), f"{int(row['Semasa']):,}", bold=True) 
         
-        p = write_cell(table.cell(r_idx, 2), f"{int(row['Kumulatif']):,}", bold=False) 
+        p = write_cell(table.cell(r_idx, 2), f"{int(row['Kumulatif']):,}", bold=True) 
         if row['Mati'] > 0:
             run = p.add_run()
             run.text = f" ({int(row['Mati'])})"
             run.font.color.rgb = RGBColor(255, 0, 0)
             run.font.bold = True; run.font.size = Pt(10); run.font.name = 'Calibri'
             
-        write_cell(table.cell(r_idx, 3), f"{int(row['Peratus'])}%", bold=False) 
+        write_cell(table.cell(r_idx, 3), f"{int(row['Peratus'])}%", bold=True) 
         
     r_idx = rows - 1
     write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True) 
@@ -388,7 +389,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
         for j, cell in enumerate(row.cells):
             set_cell_border(cell, NAVY)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            # FILL BACKGROUND: Only header row (0) and JUMLAH row (last) are filled. All columns inside are white.
+            # FILL BACKGROUND: Only header row (0) and JUMLAH row (last row). All internal columns are white.
             if i == 0 or i == len(table.rows) - 1:
                 cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248)
             else:
