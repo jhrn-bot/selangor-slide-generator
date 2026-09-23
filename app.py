@@ -63,7 +63,7 @@ def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
         solidFill.append(srgbClr)
         ln.append(solidFill)
 
-def write_cell(cell, text, bold=True, align_left=False, is_red=False, size=10):
+def write_cell(cell, text, bold=True, align_left=False, is_red=False, size=12):
     cell.text = ""
     p = cell.text_frame.paragraphs[0]
     p.alignment = PP_ALIGN.LEFT if align_left else PP_ALIGN.CENTER
@@ -71,7 +71,7 @@ def write_cell(cell, text, bold=True, align_left=False, is_red=False, size=10):
     run.text = str(text)
     run.font.size = Pt(size)
     run.font.name = 'Calibri'
-    run.font.bold = bold # NOW ALWAYS TRUE BY DEFAULT
+    run.font.bold = bold
     run.font.color.rgb = RGBColor(255, 0, 0) if is_red else NAVY
     return p
 
@@ -130,6 +130,7 @@ def load_and_process_data(file, target_me):
     stats_semasa = get_stats(df_semasa)
     stats_kumulatif = get_stats(df_kumulatif)
 
+    # Slide 3: Penyakit stats
     df_clean[col_dx] = df_clean[col_dx].astype(str).str.strip().str.upper()
     df_clean[col_dx] = df_clean[col_dx].replace({'MONKEYPOX': 'MPOX'})
     df_kumu_penyakit = df_clean[df_clean[col_me] <= target_me]
@@ -164,10 +165,41 @@ def load_and_process_data(file, target_me):
     if not df_penyakit.empty:
         df_penyakit = df_penyakit.sort_values(by=['Kumulatif', 'Penyakit'], ascending=[False, True])
 
-    return len(df), stats_semasa, stats_kumulatif, df_penyakit
+    # Slide 4: District stats
+    df_district_data = []
+    for d in VALID_DISTRICTS:
+        df_d = df_kumulatif[df_kumulatif[col_dt] == d]
+        jml = len(df_d)
+        counts = df_d[col_br].value_counts().to_dict()
+        d_notif = counts.get('Daftar Notifikasi', 0)
+        d_kes = counts.get('Daftar Kes', 0)
+        d_abai = counts.get('Abai Notifikasi', 0)
+        d_batal = counts.get('Batal Daftar', 0)
+        d_belum = counts.get('Belum Ambil Tindakan', 0)
+        
+        df_district_data.append({
+            'DAERAH': d,
+            'Jumlah Notifikasi': jml,
+            'Daftar Notifikasi': d_notif,
+            'pct_notif': (d_notif / jml * 100) if jml else 0,
+            'Daftar Kes': d_kes,
+            'pct_kes': (d_kes / jml * 100) if jml else 0,
+            'Abai Notifikasi': d_abai,
+            'pct_abai': (d_abai / jml * 100) if jml else 0,
+            'Batal Daftar': d_batal,
+            'pct_batal': (d_batal / jml * 100) if jml else 0,
+            'Belum Ambil Tindakan': d_belum,
+            'pct_belum': (d_belum / jml * 100) if jml else 0
+        })
+        
+    df_district = pd.DataFrame(df_district_data)
+    if not df_district.empty:
+        df_district = df_district.sort_values(by='Jumlah Notifikasi', ascending=False)
+
+    return len(df), stats_semasa, stats_kumulatif, df_penyakit, df_district
 
 @st.cache_data
-def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
+def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, epi_week, year):
     try:
         remote_buffer = fetch_google_slides_pptx(GOOGLE_SLIDES_ID)
         prs = Presentation(remote_buffer)
@@ -188,6 +220,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
                             for run in paragraph.runs:
                                 run.font.size = Pt(11)
 
+    # --- Slide 1: Title Slide ---
     if len(prs.slides) > 0:
         slide1 = prs.slides[0]
         for shape in list(slide1.shapes):
@@ -408,6 +441,97 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
     p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
     bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE 
 
+    # --- Slide 4: Status pencapaian e-Notifikasi Mengikut Daerah ---
+    slide_daerah = prs.slides.add_slide(prs.slide_layouts[6])
+
+    if os.path.exists("logo.png"):
+        slide_daerah.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
+
+    line = slide_daerah.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
+    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
+
+    txBox = slide_daerah.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(8), Inches(0.8))
+    p = txBox.text_frame.paragraphs[0]
+    p.text = "Status pencapaian e-Notifikasi"
+    p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
+    
+    p2 = txBox.text_frame.add_paragraph()
+    p2.text = f"Sehingga ME {epi_week:02d} / {year}"
+    p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
+
+    rows = len(df_district) + 2
+    cols = 12
+    table_shape = slide_daerah.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0))
+    table = table_shape.table
+
+    col_widths = [
+        Inches(1.4), Inches(1.1), Inches(1.0), Inches(0.85),
+        Inches(0.95), Inches(0.85), Inches(1.0), Inches(0.85),
+        Inches(0.95), Inches(0.85), Inches(1.0), Inches(0.85)
+    ]
+    for j, w in enumerate(col_widths):
+        table.columns[j].width = w
+
+    headers = [
+        "DAERAH", "Jumlah\nNotifikasi", "Daftar\nNotifikasi", "%", 
+        "Daftar Kes", "%", "Abai\nNotifikasi", "%", 
+        "Batal Daftar", "%", "Belum\nAmbil\nTindakan", "%"
+    ]
+    for j, h in enumerate(headers):
+        write_cell(table.cell(0, j), h, bold=True, size=11)
+
+    tot_jml = df_district['Jumlah Notifikasi'].sum() if not df_district.empty else 0
+    tot_notif = df_district['Daftar Notifikasi'].sum() if not df_district.empty else 0
+    tot_kes = df_district['Daftar Kes'].sum() if not df_district.empty else 0
+    tot_abai = df_district['Abai Notifikasi'].sum() if not df_district.empty else 0
+    tot_batal = df_district['Batal Daftar'].sum() if not df_district.empty else 0
+    tot_belum = df_district['Belum Ambil Tindakan'].sum() if not df_district.empty else 0
+
+    for i, (_, row) in enumerate(df_district.iterrows()):
+        r_idx = i + 1
+        write_cell(table.cell(r_idx, 0), str(row['DAERAH']), bold=True, size=12)
+        write_cell(table.cell(r_idx, 1), f"{int(row['Jumlah Notifikasi']):,}", bold=True, size=12)
+        write_cell(table.cell(r_idx, 2), f"{int(row['Daftar Notifikasi']):,}", bold=True, size=12)
+        write_cell(table.cell(r_idx, 3), f"{row['pct_notif']:.2f}%", bold=True, size=12)
+        write_cell(table.cell(r_idx, 4), f"{int(row['Daftar Kes']):,}", bold=True, size=12)
+        write_cell(table.cell(r_idx, 5), f"{row['pct_kes']:.2f}%", bold=True, size=12)
+        write_cell(table.cell(r_idx, 6), f"{int(row['Abai Notifikasi']):,}", bold=True, size=12)
+        write_cell(table.cell(r_idx, 7), f"{row['pct_abai']:.2f}%", bold=True, size=12)
+        write_cell(table.cell(r_idx, 8), f"{int(row['Batal Daftar']):,}", bold=True, size=12)
+        write_cell(table.cell(r_idx, 9), f"{row['pct_batal']:.2f}%", bold=True, size=12)
+        write_cell(table.cell(r_idx, 10), f"{int(row['Belum Ambil Tindakan']):,}", bold=True, size=12)
+        write_cell(table.cell(r_idx, 11), f"{row['pct_belum']:.2f}%", bold=True, size=12)
+
+    r_idx = rows - 1
+    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=12)
+    write_cell(table.cell(r_idx, 1), f"{int(tot_jml):,}", bold=True, size=12)
+    write_cell(table.cell(r_idx, 2), f"{int(tot_notif):,}", bold=True, size=12)
+    write_cell(table.cell(r_idx, 3), f"{(tot_notif/tot_jml*100):.2f}%" if tot_jml else "0.00%", bold=True, size=12)
+    write_cell(table.cell(r_idx, 4), f"{int(tot_kes):,}", bold=True, size=12)
+    write_cell(table.cell(r_idx, 5), f"{(tot_kes/tot_jml*100):.2f}%" if tot_jml else "0.00%", bold=True, size=12)
+    write_cell(table.cell(r_idx, 6), f"{int(tot_abai):,}", bold=True, size=12)
+    write_cell(table.cell(r_idx, 7), f"{(tot_abai/tot_jml*100):.2f}%" if tot_jml else "0.00%", bold=True, size=12)
+    write_cell(table.cell(r_idx, 8), f"{int(tot_batal):,}", bold=True, size=12)
+    write_cell(table.cell(r_idx, 9), f"{(tot_batal/tot_jml*100):.2f}%" if tot_jml else "0.00%", bold=True, size=12)
+    write_cell(table.cell(r_idx, 10), f"{int(tot_belum):,}", bold=True, size=12)
+    write_cell(table.cell(r_idx, 11), f"{(tot_belum/tot_jml*100):.2f}%" if tot_jml else "0.00%", bold=True, size=12)
+
+    for i, row in enumerate(table.rows):
+        for j, cell in enumerate(row.cells):
+            set_cell_border(cell, NAVY)
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            if i == 0 or j == 0 or i == len(table.rows) - 1:
+                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248)
+            else:
+                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+
+    bottom_banner = slide_daerah.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
+    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
+    p = bottom_banner.text_frame.paragraphs[0]
+    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
+    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
+    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE 
+
     buffer = io.BytesIO()
     prs.save(buffer)
     buffer.seek(0)
@@ -417,8 +541,8 @@ st.divider()
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
-        total_rows, stats_semasa, stats_kumulatif, df_penyakit = load_and_process_data(uploaded_file, epi_week)
-        pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year)
+        total_rows, stats_semasa, stats_kumulatif, df_penyakit, df_district = load_and_process_data(uploaded_file, epi_week)
+        pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, epi_week, year)
         
         st.success(f"Successfully processed {total_rows:,} records. Slide deck is ready!")
 
