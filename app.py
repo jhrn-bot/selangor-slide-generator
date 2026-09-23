@@ -6,7 +6,7 @@ import streamlit as st
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.util import Inches, Pt
 
 st.set_page_config(
@@ -15,7 +15,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# The ID of your Google Slides presentation
 GOOGLE_SLIDES_ID = "1QFVgrEPqgiDditxLQhHRLapQOqaCjZnt"
 
 # --- Calculate Epid Week (Malaysia Time UTC+8) ---
@@ -69,9 +68,10 @@ def generate_pptx():
             if shape.has_table:
                 for row in shape.table.rows:
                     for cell in row.cells:
-                        # Ensure cell alignment is centered
-                        cell.vertical_anchor = 'middle' 
+                        # Ensure cell alignment is vertically centered
+                        cell.vertical_anchor = MSO_ANCHOR.MIDDLE 
                         for paragraph in cell.text_frame.paragraphs:
+                            # Ensure horizontal alignment is centered
                             paragraph.alignment = PP_ALIGN.CENTER
                             for run in paragraph.runs:
                                 run.font.size = Pt(11)
