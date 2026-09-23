@@ -36,12 +36,12 @@ DISTRICT_ABBR = [
     ('SEPANG', 'SPG')
 ]
 
-# LEPTOSPIROSIS REMOVED FROM INCLUSION LIST
-INCLUSION_DIAGNOSES = [
+# EXPLICIT INCLUSION LIST (NO LEPTOSPIROSIS)
+INCLUSION_DIAGNOSES = (
     'HFMD', 'FOOD POISONING', 'COVID-19', 
     'MERS-COV', 'DIPHTERIA', 'DIPHTHERIA', 'CHIKUNGUNYA', 
     'MALARIA', 'LEPROSY'
-]
+)
 
 NAVY = RGBColor(27, 54, 93)
 LIGHT_GREY = RGBColor(211, 211, 211)  # #D3D3D3
@@ -112,7 +112,7 @@ def fetch_google_slides_pptx(file_id):
         return io.BytesIO(response.read())
 
 @st.cache_data
-def load_and_process_data(file, target_me):
+def load_and_process_data(file, target_me, inclusion_tuple):
     df = pd.read_excel(file)
     col_me = df.columns[5]    # Column F (0-indexed: 5)
     col_dt = df.columns[123]  # Column DT (0-indexed: 123)
@@ -263,7 +263,7 @@ def load_and_process_data(file, target_me):
     df_dn = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
-        (df_clean[col_dx].astype(str).str.strip().str.upper().isin(INCLUSION_DIAGNOSES))
+        (df_clean[col_dx].astype(str).str.strip().str.upper().isin(inclusion_tuple))
     ].copy()
 
     df_dn[col_dx] = df_dn[col_dx].astype(str).str.strip().str.upper()
@@ -281,7 +281,7 @@ def load_and_process_data(file, target_me):
     df_dn_exc = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
-        (~df_clean[col_dx].astype(str).str.strip().str.upper().isin(INCLUSION_DIAGNOSES))
+        (~df_clean[col_dx].astype(str).str.strip().str.upper().isin(inclusion_tuple))
     ].copy()
 
     df_dn_exc[col_dx] = df_dn_exc[col_dx].astype(str).str.strip().str.upper()
@@ -957,7 +957,8 @@ st.divider()
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
-        total_rows, stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct = load_and_process_data(uploaded_file, epi_week)
+        # PASSING INCLUSION_DIAGNOSES TUPLE TO FORCE ST.CACHE_DATA INVALIDATION
+        total_rows, stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct = load_and_process_data(uploaded_file, epi_week, INCLUSION_DIAGNOSES)
         pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, epi_week, year)
         
         st.success(f"Successfully processed {total_rows:,} records. Slide deck is ready!")
