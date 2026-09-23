@@ -63,13 +63,13 @@ def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
         solidFill.append(srgbClr)
         ln.append(solidFill)
 
-def write_cell(cell, text, bold=False, align_left=False, is_red=False):
+def write_cell(cell, text, bold=False, align_left=False, is_red=False, size=10):
     cell.text = ""
     p = cell.text_frame.paragraphs[0]
     p.alignment = PP_ALIGN.LEFT if align_left else PP_ALIGN.CENTER
     run = p.add_run()
     run.text = str(text)
-    run.font.size = Pt(10)
+    run.font.size = Pt(size)
     run.font.name = 'Calibri'
     run.font.bold = bold
     run.font.color.rgb = RGBColor(255, 0, 0) if is_red else NAVY
@@ -265,36 +265,36 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
 
     headers = ["Minggu Epid", f"ME {epi_week:02d} (Semasa)", "", f"Kumulatif Sehingga ME {epi_week:02d}", ""]
     for i, txt in enumerate(headers):
-        write_cell(table.cell(0, i), txt, bold=True)
+        write_cell(table.cell(0, i), txt, bold=True, size=17) # Font Size 17 applied
     table.cell(0, 1).merge(table.cell(0, 2))
     table.cell(0, 3).merge(table.cell(0, 4))
 
     row_labels = ["", "Jumlah Notifikasi", "Daftar Notifikasi", "Daftar Kes", "Abai Notifikasi", "Belum Ambil Tindakan", "Batal Daftar"]
     for i in range(1, 7):
-        write_cell(table.cell(i, 0), row_labels[i], bold=True)
+        write_cell(table.cell(i, 0), row_labels[i], bold=True, size=17) # Font Size 17 applied
 
-    write_cell(table.cell(1, 1), f"{stats_semasa['total']:,}", bold=True)
-    write_cell(table.cell(1, 3), f"{stats_kumulatif['total']:,}", bold=True)
-    write_cell(table.cell(2, 1), f"{stats_semasa['daftar_notifikasi']:,}", bold=True)
-    write_cell(table.cell(2, 2), stats_semasa['pct_daftar_notif'], bold=True)
-    write_cell(table.cell(2, 3), f"{stats_kumulatif['daftar_notifikasi']:,}", bold=True)
-    write_cell(table.cell(2, 4), stats_kumulatif['pct_daftar_notif'], bold=True)
-    write_cell(table.cell(3, 1), f"{stats_semasa['daftar_kes']:,}", bold=True)
-    write_cell(table.cell(3, 2), stats_semasa['pct_daftar_kes'], bold=True)
-    write_cell(table.cell(3, 3), f"{stats_kumulatif['daftar_kes']:,}", bold=True)
-    write_cell(table.cell(3, 4), stats_kumulatif['pct_daftar_kes'], bold=True)
-    write_cell(table.cell(4, 1), f"{stats_semasa['abai']:,}", bold=True)
-    write_cell(table.cell(4, 2), stats_semasa['pct_abai'], bold=True)
-    write_cell(table.cell(4, 3), f"{stats_kumulatif['abai']:,}", bold=True)
-    write_cell(table.cell(4, 4), stats_kumulatif['pct_abai'], bold=True)
-    write_cell(table.cell(5, 1), f"{stats_semasa['belum']:,}", bold=True)
-    write_cell(table.cell(5, 2), stats_semasa['pct_belum'], bold=True)
-    write_cell(table.cell(5, 3), f"{stats_kumulatif['belum']:,}", bold=True)
-    write_cell(table.cell(5, 4), stats_kumulatif['pct_belum'], bold=True)
-    write_cell(table.cell(6, 1), f"{stats_semasa['batal']:,}", bold=True)
-    write_cell(table.cell(6, 2), stats_semasa['pct_batal'], bold=True)
-    write_cell(table.cell(6, 3), f"{stats_kumulatif['batal']:,}", bold=True)
-    write_cell(table.cell(6, 4), stats_kumulatif['pct_batal'], bold=True)
+    write_cell(table.cell(1, 1), f"{stats_semasa['total']:,}", bold=True, size=17)
+    write_cell(table.cell(1, 3), f"{stats_kumulatif['total']:,}", bold=True, size=17)
+    write_cell(table.cell(2, 1), f"{stats_semasa['daftar_notifikasi']:,}", bold=True, size=17)
+    write_cell(table.cell(2, 2), stats_semasa['pct_daftar_notif'], bold=True, size=17)
+    write_cell(table.cell(2, 3), f"{stats_kumulatif['daftar_notifikasi']:,}", bold=True, size=17)
+    write_cell(table.cell(2, 4), stats_kumulatif['pct_daftar_notif'], bold=True, size=17)
+    write_cell(table.cell(3, 1), f"{stats_semasa['daftar_kes']:,}", bold=True, size=17)
+    write_cell(table.cell(3, 2), stats_semasa['pct_daftar_kes'], bold=True, size=17)
+    write_cell(table.cell(3, 3), f"{stats_kumulatif['daftar_kes']:,}", bold=True, size=17)
+    write_cell(table.cell(3, 4), stats_kumulatif['pct_daftar_kes'], bold=True, size=17)
+    write_cell(table.cell(4, 1), f"{stats_semasa['abai']:,}", bold=True, size=17)
+    write_cell(table.cell(4, 2), stats_semasa['pct_abai'], bold=True, size=17)
+    write_cell(table.cell(4, 3), f"{stats_kumulatif['abai']:,}", bold=True, size=17)
+    write_cell(table.cell(4, 4), stats_kumulatif['pct_abai'], bold=True, size=17)
+    write_cell(table.cell(5, 1), f"{stats_semasa['belum']:,}", bold=True, size=17)
+    write_cell(table.cell(5, 2), stats_semasa['pct_belum'], bold=True, size=17)
+    write_cell(table.cell(5, 3), f"{stats_kumulatif['belum']:,}", bold=True, size=17)
+    write_cell(table.cell(5, 4), stats_kumulatif['pct_belum'], bold=True, size=17)
+    write_cell(table.cell(6, 1), f"{stats_semasa['batal']:,}", bold=True, size=17)
+    write_cell(table.cell(6, 2), stats_semasa['pct_batal'], bold=True, size=17)
+    write_cell(table.cell(6, 3), f"{stats_kumulatif['batal']:,}", bold=True, size=17)
+    write_cell(table.cell(6, 4), stats_kumulatif['pct_batal'], bold=True, size=17)
 
     for i, row in enumerate(table.rows):
         for j, cell in enumerate(row.cells):
@@ -348,7 +348,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
 
     rows = len(df_render) + 2
     cols = 4
-    # EXPANDED TABLE WIDTH AND POSITIONING (to match target design)
     table_shape = slide_penyakit.shapes.add_table(rows, cols, Inches(0.8), Inches(1.5), Inches(11.733), Inches(5.0))
     table = table_shape.table
     table.columns[0].width = Inches(3.2)
@@ -362,20 +361,20 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
 
     for i, (_, row) in enumerate(df_render.iterrows()):
         r_idx = i + 1
-        write_cell(table.cell(r_idx, 0), str(row['Penyakit']), bold=True, align_left=True) # Bold for disease names
-        write_cell(table.cell(r_idx, 1), f"{int(row['Semasa']):,}", bold=False) # Regular weight for data
+        write_cell(table.cell(r_idx, 0), str(row['Penyakit']), bold=True, align_left=True) 
+        write_cell(table.cell(r_idx, 1), f"{int(row['Semasa']):,}", bold=False) 
         
-        p = write_cell(table.cell(r_idx, 2), f"{int(row['Kumulatif']):,}", bold=False) # Regular weight for data
+        p = write_cell(table.cell(r_idx, 2), f"{int(row['Kumulatif']):,}", bold=False) 
         if row['Mati'] > 0:
             run = p.add_run()
             run.text = f" ({int(row['Mati'])})"
             run.font.color.rgb = RGBColor(255, 0, 0)
             run.font.bold = True; run.font.size = Pt(10); run.font.name = 'Calibri'
             
-        write_cell(table.cell(r_idx, 3), f"{int(row['Peratus'])}%", bold=False) # Regular weight for data
+        write_cell(table.cell(r_idx, 3), f"{int(row['Peratus'])}%", bold=False) 
         
     r_idx = rows - 1
-    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True) # Bold for final row
+    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True) 
     write_cell(table.cell(r_idx, 1), f"{int(total_semasa):,}", bold=True)
     p = write_cell(table.cell(r_idx, 2), f"{int(total_kumulatif):,}", bold=True)
     if total_mati > 0:
@@ -394,14 +393,13 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
             else:
                 cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
 
-    # LOWERED FOOTER POSITIONING (to prevent overlapping)
     txBox = slide_penyakit.shapes.add_textbox(Inches(0.8), Inches(6.9), Inches(6), Inches(0.4))
     p = txBox.text_frame.paragraphs[0]
     p.text = "Sumber data adalah daripada sistem eNotifikasi"
-    p.font.size = Pt(9); p.font.bold = True; p.font.name = 'Calibri'; p.font.color.rgb = RGBColor(0, 0, 0) # Black
+    p.font.size = Pt(9); p.font.bold = True; p.font.name = 'Calibri'; p.font.color.rgb = RGBColor(0, 0, 0) 
     p2 = txBox.text_frame.add_paragraph()
     p2.text = "*(Mati)"
-    p2.font.size = Pt(9); p2.font.bold = True; p2.font.color.rgb = RGBColor(255, 0, 0); p.font.name = 'Calibri' # Red
+    p2.font.size = Pt(9); p.font.bold = True; p.font.color.rgb = RGBColor(255, 0, 0); p.font.name = 'Calibri' 
     
     bottom_banner = slide_penyakit.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
     bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
