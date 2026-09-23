@@ -595,23 +595,23 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     for j in range(1, 11):
         table.columns[j].width = Inches(1.0)
 
-    # Row 0 Headers
+    # Row 0 Headers (UPDATED TO FONT SIZE 16)
     h0 = ["DIAGNOSIS"] + [d[1] for d in DISTRICT_ABBR] + ["JUM"]
     for j, txt in enumerate(h0):
-        write_cell(table.cell(0, j), txt, bold=True, size=12)
+        write_cell(table.cell(0, j), txt, bold=True, size=16)
 
-    # Row 1 Headers
+    # Row 1 Headers (UPDATED TO FONT SIZE 16)
     h1 = [""] + [f"ME{epi_week:02d}"] * 10
     for j, txt in enumerate(h1):
         if j > 0:
-            write_cell(table.cell(1, j), txt, bold=True, size=12)
+            write_cell(table.cell(1, j), txt, bold=True, size=16)
 
     table.cell(0, 0).merge(table.cell(1, 0))
-    write_cell(table.cell(0, 0), "DIAGNOSIS", bold=True, size=12)
+    write_cell(table.cell(0, 0), "DIAGNOSIS", bold=True, size=16)
 
     district_names = [d[0] for d in DISTRICT_ABBR]
     
-    # Data Rows
+    # Data Rows (UPDATED TO FONT SIZE 16)
     district_sums = {d: 0 for d in district_names}
     total_jum = 0
 
@@ -619,23 +619,23 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     for i, (_, row) in enumerate(df_belum_ct.iterrows()):
         r_idx = i + 2
-        write_cell(table.cell(r_idx, 0), str(row[col_dx_name]), bold=True, align_left=True, size=12)
+        write_cell(table.cell(r_idx, 0), str(row[col_dx_name]), bold=True, align_left=True, size=16)
         row_jum = 0
         for j, d_name in enumerate(district_names):
             val = int(row[d_name]) if d_name in row else 0
-            write_cell(table.cell(r_idx, j + 1), str(val), bold=True, size=12)
+            write_cell(table.cell(r_idx, j + 1), str(val), bold=True, size=16)
             district_sums[d_name] += val
             row_jum += val
         jum_val = int(row['JUM']) if 'JUM' in row else row_jum
-        write_cell(table.cell(r_idx, 10), str(jum_val), bold=True, size=12)
+        write_cell(table.cell(r_idx, 10), str(jum_val), bold=True, size=16)
         total_jum += jum_val
 
-    # JUMLAH Row
+    # JUMLAH Row (UPDATED TO FONT SIZE 16)
     r_idx = rows - 1
-    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=12)
+    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=16)
     for j, d_name in enumerate(district_names):
-        write_cell(table.cell(r_idx, j + 1), str(district_sums[d_name]), bold=True, size=12)
-    write_cell(table.cell(r_idx, 10), str(total_jum), bold=True, size=12)
+        write_cell(table.cell(r_idx, j + 1), str(district_sums[d_name]), bold=True, size=16)
+    write_cell(table.cell(r_idx, 10), str(total_jum), bold=True, size=16)
 
     # Formatting Table Colors & Borders
     for i, row in enumerate(table.rows):
