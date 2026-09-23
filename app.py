@@ -25,7 +25,7 @@ VALID_DISTRICTS = [
     'KUALA LANGAT', 'KUALA SELANGOR', 'PETALING', 
     'SABAK BERNAM', 'SEPANG'
 ]
-NAVY = RGBColor(27, 54, 93)  # Official Navy Blue
+NAVY = RGBColor(27, 54, 93)
 
 # --- Calculate Epid Week (Malaysia Time UTC+8) ---
 def get_previous_epi_week():
@@ -49,7 +49,7 @@ def get_previous_epi_week():
 
 epi_week, year = get_previous_epi_week()
 
-# --- Helper to draw table cell borders ---
+# --- Helper functions ---
 def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
@@ -64,6 +64,18 @@ def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
         srgbClr.set('val', f'{color[0]:02X}{color[1]:02X}{color[2]:02X}')
         solidFill.append(srgbClr)
         ln.append(solidFill)
+
+def write_cell(cell, text, bold=False, align_left=False, is_red=False):
+    cell.text = ""
+    p = cell.text_frame.paragraphs[0]
+    p.alignment = PP_ALIGN.LEFT if align_left else PP_ALIGN.CENTER
+    run = p.add_run()
+    run.text = str(text)
+    run.font.size = Pt(10)
+    run.font.name = 'Calibri'
+    run.font.bold = bold
+    run.font.color.rgb = RGBColor(255, 0, 0) if is_red else NAVY
+    return p
 
 # --- UI Setup ---
 st.title("📊 Selangor Epi Review Slide Generator")
@@ -80,14 +92,19 @@ def fetch_google_slides_pptx(file_id):
         return io.BytesIO(response.read())
 
 # --- Data Processing Logic ---
-def process_data(df, target_me):
+@st.cache_data
+def load_and_process_data(file_bytes, target_me):
+    df = pd.read_excel(file_bytes)
     col_me = df.columns[7]
     col_dt = df.columns[123] 
     col_br = df.columns[69]
+    col_bt = df.columns[71] # Status Pesakit
+    col_dx = df.columns[127] # Penyakit
 
     df_clean = df[df[col_dt].isin(VALID_DISTRICTS)].copy()
     df_clean[col_me] = pd.to_numeric(df_clean[col_me], errors='coerce')
     
+    # 1. Stats for Slide 2 (Overall e-Notifikasi)
     df_semasa = df_clean[df_clean[col_me] == target_me]
     df_kumulatif = df_clean[df_clean[col_me] <= target_me]
     
@@ -115,10 +132,50 @@ def process_data(df, target_me):
             'pct_batal': f"{(batal/total*100):.2f}%" if total else "0.00%",
         }
         
-    return get_stats(df_semasa), get_stats(df_kumulatif)
+    stats_semasa = get_stats(df_semasa)
+    stats_kumulatif = get_stats(df_kumulatif)
+
+    # 2. Stats for Slide 3 (Penyakit)
+    df_clean[col_dx] = df_clean[col_dx].astype(str).str.strip().str.upper()
+    df_clean[col_dx] = df_clean[col_dx].replace({'MONKEYPOX': 'MPOX'})
+    df_kumu_penyakit = df_clean[df_clean[col_me] <= target_me]
+    
+    diseases = df_kumu_penyakit[col_dx].unique()
+    data_penyakit = []
+    
+    for dx in diseases:
+        if pd.isna(dx) or dx == 'NAN': continue
+        df_dx = df_kumu_penyakit[df_kumu_penyakit[col_dx] == dx]
+        
+        is_daftar_kes = df_dx[col_br].astype(str).str.strip().str.upper() == 'DAFTAR KES'
+        is_mati = df_dx[col_bt].astype(str).str.strip().str.upper() == 'MATI'
+        
+        # Calculations
+        kumulatif_all_notif = len(df_dx)
+        if kumulatif_all_notif == 0: continue
+            
+        semasa_daftar_kes = len(df_dx[(df_dx[col_me] == target_me) & is_daftar_kes])
+        kumulatif_daftar_kes = len(df_dx[is_daftar_kes])
+        kumulatif_mati = len(df_dx[is_mati])
+        peratus = (kumulatif_daftar_kes / kumulatif_all_notif * 100)
+        
+        data_penyakit.append({
+            'Penyakit': dx,
+            'Semasa': semasa_daftar_kes,
+            'Kumulatif': kumulatif_daftar_kes,
+            'Mati': kumulatif_mati,
+            'Peratus': peratus
+        })
+        
+    df_penyakit = pd.DataFrame(data_penyakit)
+    if not df_penyakit.empty:
+        df_penyakit = df_penyakit.sort_values(by=['Kumulatif', 'Penyakit'], ascending=[False, True])
+
+    return len(df), stats_semasa, stats_kumulatif, df_penyakit
 
 # --- Presentation Generation ---
-def generate_pptx(stats_semasa, stats_kumulatif):
+@st.cache_data
+def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
     try:
         remote_buffer = fetch_google_slides_pptx(GOOGLE_SLIDES_ID)
         prs = Presentation(remote_buffer)
@@ -153,17 +210,14 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
     slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.2), Inches(0.2), Inches(0.25), Inches(1.8)).fill.solid()
     slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
-    
     slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(10.933), Inches(0.2), Inches(2.2), Inches(0.25)).fill.solid()
     slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
     slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(12.883), Inches(0.2), Inches(0.25), Inches(1.8)).fill.solid()
     slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
-    
     slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.2), Inches(7.05), Inches(2.2), Inches(0.25)).fill.solid()
     slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
     slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.2), Inches(5.5), Inches(0.25), Inches(1.8)).fill.solid()
     slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
-
     slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(10.933), Inches(7.05), Inches(2.2), Inches(0.25)).fill.solid()
     slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
     slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(12.883), Inches(5.5), Inches(0.25), Inches(1.8)).fill.solid()
@@ -192,16 +246,16 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     if os.path.exists("qr.png"):
         slide1.shapes.add_picture("qr.png", Inches(10.35), Inches(4.55), width=Inches(2.2))
 
-    # --- 3. Build Analisa e-Notifikasi (Appended as the last slide) ---
-    slide_last = prs.slides.add_slide(prs.slide_layouts[6])
+    # --- 3. Build Analisa e-Notifikasi (Slide 2) ---
+    slide_notif = prs.slides.add_slide(prs.slide_layouts[6])
 
     if os.path.exists("logo.png"):
-        slide_last.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
+        slide_notif.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
 
-    line = slide_last.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
+    line = slide_notif.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
-    txBox = slide_last.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(8), Inches(0.8))
+    txBox = slide_notif.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(8), Inches(0.8))
     p = txBox.text_frame.paragraphs[0]
     p.text = "Analisa e-Notifikasi"
     p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
@@ -211,85 +265,173 @@ def generate_pptx(stats_semasa, stats_kumulatif):
     p2.font.size = Pt(16); p2.font.color.rgb = NAVY
 
     rows, cols = 7, 5
-    table_shape = slide_last.shapes.add_table(rows, cols, Inches(1.15), Inches(1.7), Inches(11.0), Inches(4.7))
+    table_shape = slide_notif.shapes.add_table(rows, cols, Inches(1.15), Inches(1.7), Inches(11.0), Inches(4.7))
     table = table_shape.table
-
     table.columns[0].width = Inches(2.2)
     table.columns[1].width = Inches(2.2)
     table.columns[2].width = Inches(2.2)
     table.columns[3].width = Inches(2.2)
     table.columns[4].width = Inches(2.2)
 
-    headers = [
-        "Minggu Epid", f"ME {epi_week:02d} (Semasa)", "", f"Kumulatif Sehingga ME {epi_week:02d}", ""
-    ]
+    headers = ["Minggu Epid", f"ME {epi_week:02d} (Semasa)", "", f"Kumulatif Sehingga ME {epi_week:02d}", ""]
     for i, txt in enumerate(headers):
-        cell = table.cell(0, i)
-        cell.text = txt
-        cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248) 
-
+        write_cell(table.cell(0, i), txt, bold=True)
     table.cell(0, 1).merge(table.cell(0, 2))
     table.cell(0, 3).merge(table.cell(0, 4))
 
     row_labels = ["", "Jumlah Notifikasi", "Daftar Notifikasi", "Daftar Kes", "Abai Notifikasi", "Belum Ambil Tindakan", "Batal Daftar"]
     
     for i in range(1, 7):
-        table.cell(i, 0).text = row_labels[i]
-        table.cell(i, 0).fill.solid(); table.cell(i, 0).fill.fore_color.rgb = RGBColor(226, 237, 248) 
-        for j in range(1, 5):
-             table.cell(i, j).fill.solid(); table.cell(i, j).fill.fore_color.rgb = RGBColor(255, 255, 255) 
+        write_cell(table.cell(i, 0), row_labels[i], bold=True)
 
-    table.cell(1, 1).text = f"{stats_semasa['total']:,}"
-    table.cell(1, 2).fill.solid(); table.cell(1, 2).fill.fore_color.rgb = RGBColor(0, 0, 0)
-    table.cell(1, 3).text = f"{stats_kumulatif['total']:,}"
-    table.cell(1, 4).fill.solid(); table.cell(1, 4).fill.fore_color.rgb = RGBColor(0, 0, 0)
+    write_cell(table.cell(1, 1), f"{stats_semasa['total']:,}", bold=True)
+    write_cell(table.cell(1, 3), f"{stats_kumulatif['total']:,}", bold=True)
 
-    table.cell(2, 1).text = f"{stats_semasa['daftar_notifikasi']:,}"
-    table.cell(2, 2).text = stats_semasa['pct_daftar_notif']
-    table.cell(2, 3).text = f"{stats_kumulatif['daftar_notifikasi']:,}"
-    table.cell(2, 4).text = stats_kumulatif['pct_daftar_notif']
+    write_cell(table.cell(2, 1), f"{stats_semasa['daftar_notifikasi']:,}", bold=True)
+    write_cell(table.cell(2, 2), stats_semasa['pct_daftar_notif'], bold=True)
+    write_cell(table.cell(2, 3), f"{stats_kumulatif['daftar_notifikasi']:,}", bold=True)
+    write_cell(table.cell(2, 4), stats_kumulatif['pct_daftar_notif'], bold=True)
 
-    table.cell(3, 1).text = f"{stats_semasa['daftar_kes']:,}"
-    table.cell(3, 2).text = stats_semasa['pct_daftar_kes']
-    table.cell(3, 3).text = f"{stats_kumulatif['daftar_kes']:,}"
-    table.cell(3, 4).text = stats_kumulatif['pct_daftar_kes']
+    write_cell(table.cell(3, 1), f"{stats_semasa['daftar_kes']:,}", bold=True)
+    write_cell(table.cell(3, 2), stats_semasa['pct_daftar_kes'], bold=True)
+    write_cell(table.cell(3, 3), f"{stats_kumulatif['daftar_kes']:,}", bold=True)
+    write_cell(table.cell(3, 4), stats_kumulatif['pct_daftar_kes'], bold=True)
 
-    table.cell(4, 1).text = f"{stats_semasa['abai']:,}"
-    table.cell(4, 2).text = stats_semasa['pct_abai']
-    table.cell(4, 3).text = f"{stats_kumulatif['abai']:,}"
-    table.cell(4, 4).text = stats_kumulatif['pct_abai']
+    write_cell(table.cell(4, 1), f"{stats_semasa['abai']:,}", bold=True)
+    write_cell(table.cell(4, 2), stats_semasa['pct_abai'], bold=True)
+    write_cell(table.cell(4, 3), f"{stats_kumulatif['abai']:,}", bold=True)
+    write_cell(table.cell(4, 4), stats_kumulatif['pct_abai'], bold=True)
 
-    table.cell(5, 1).text = f"{stats_semasa['belum']:,}"
-    table.cell(5, 2).text = stats_semasa['pct_belum']
-    table.cell(5, 3).text = f"{stats_kumulatif['belum']:,}"
-    table.cell(5, 4).text = stats_kumulatif['pct_belum']
+    write_cell(table.cell(5, 1), f"{stats_semasa['belum']:,}", bold=True)
+    write_cell(table.cell(5, 2), stats_semasa['pct_belum'], bold=True)
+    write_cell(table.cell(5, 3), f"{stats_kumulatif['belum']:,}", bold=True)
+    write_cell(table.cell(5, 4), stats_kumulatif['pct_belum'], bold=True)
 
-    table.cell(6, 1).text = f"{stats_semasa['batal']:,}"
-    table.cell(6, 2).text = stats_semasa['pct_batal']
-    table.cell(6, 3).text = f"{stats_kumulatif['batal']:,}"
-    table.cell(6, 4).text = stats_kumulatif['pct_batal']
+    write_cell(table.cell(6, 1), f"{stats_semasa['batal']:,}", bold=True)
+    write_cell(table.cell(6, 2), stats_semasa['pct_batal'], bold=True)
+    write_cell(table.cell(6, 3), f"{stats_kumulatif['batal']:,}", bold=True)
+    write_cell(table.cell(6, 4), stats_kumulatif['pct_batal'], bold=True)
 
-    for row in table.rows:
-        for cell in row.cells:
-            set_cell_border(cell, (27, 54, 93))
+    for i, row in enumerate(table.rows):
+        for j, cell in enumerate(row.cells):
+            set_cell_border(cell, NAVY)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE 
-            for paragraph in cell.text_frame.paragraphs:
-                paragraph.alignment = PP_ALIGN.CENTER
-                for run in paragraph.runs:
-                    run.font.size = Pt(17)
-                    run.font.name = 'Calibri'
-                    run.font.color.rgb = NAVY 
-                    
+            if i == 0 or j == 0:
+                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248)
+            else:
+                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+            if i == 1 and j in [2, 4]:
+                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(0, 0, 0)
+                
     myt_zone = datetime.timezone(datetime.timedelta(hours=8))
     now = datetime.datetime.now(myt_zone)
     timestamp_str = now.strftime("%d/%m/%Y @ %I.%M%p").upper()
     
-    txBox = slide_last.shapes.add_textbox(Inches(0.1), Inches(6.9), Inches(10), Inches(0.4))
+    txBox = slide_notif.shapes.add_textbox(Inches(0.1), Inches(6.9), Inches(10), Inches(0.4))
     p = txBox.text_frame.paragraphs[0]
     p.text = f"(Sumber : Sistem e-notifikasi, KKM muat turun pada ({timestamp_str}))"
     p.font.size = Pt(9); p.font.italic = True; p.font.name = 'Calibri'
     
-    bottom_banner = slide_last.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.8), Inches(6.833), Inches(0.5))
+    bottom_banner = slide_notif.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.8), Inches(6.833), Inches(0.5))
+    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
+    p = bottom_banner.text_frame.paragraphs[0]
+    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
+    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'
+    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE 
+
+
+    # --- 4. Build Bilangan Daftar Kes Mengikut Penyakit (Slide 3) ---
+    slide_penyakit = prs.slides.add_slide(prs.slide_layouts[6])
+
+    if os.path.exists("logo.png"):
+        slide_penyakit.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
+
+    line = slide_penyakit.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
+    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
+
+    txBox = slide_penyakit.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(8), Inches(0.8))
+    p = txBox.text_frame.paragraphs[0]
+    p.text = "Bilangan Daftar Kes Mengikut Penyakit"
+    p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
+    
+    p2 = txBox.text_frame.add_paragraph()
+    p2.text = f"ME {epi_week:02d} / {year}"
+    p2.font.size = Pt(16); p2.font.color.rgb = NAVY
+
+    # Cap at Top 19 for rendering size limits
+    total_semasa = df_penyakit['Semasa'].sum() if not df_penyakit.empty else 0
+    total_kumulatif = df_penyakit['Kumulatif'].sum() if not df_penyakit.empty else 0
+    total_mati = df_penyakit['Mati'].sum() if not df_penyakit.empty else 0
+    if len(df_penyakit) > 19:
+        df_render = df_penyakit.head(19)
+    else:
+        df_render = df_penyakit
+
+    rows = len(df_render) + 2
+    cols = 4
+    table_shape = slide_penyakit.shapes.add_table(rows, cols, Inches(0.8), Inches(1.5), Inches(11.7), Inches(5.1))
+    table = table_shape.table
+
+    table.columns[0].width = Inches(3.5)
+    table.columns[1].width = Inches(2.2)
+    table.columns[2].width = Inches(2.8)
+    table.columns[3].width = Inches(3.2)
+
+    headers = [
+        "Penyakit", f"ME {epi_week:02d}", f"≤ ME {epi_week:02d}/ {year}", 
+        "Peratus Daftar Kes\n(Bil Daftar Kes / Bil Notifikasi Kes Tersebut)"
+    ]
+    for j, h in enumerate(headers):
+        write_cell(table.cell(0, j), h, bold=True)
+
+    for i, (_, row) in enumerate(df_render.iterrows()):
+        r_idx = i + 1
+        write_cell(table.cell(r_idx, 0), str(row['Penyakit']), bold=True, align_left=True)
+        write_cell(table.cell(r_idx, 1), f"{int(row['Semasa']):,}", bold=True)
+        
+        p = write_cell(table.cell(r_idx, 2), f"{int(row['Kumulatif']):,}", bold=True)
+        if row['Mati'] > 0:
+            run = p.add_run()
+            run.text = f" ({int(row['Mati'])})"
+            run.font.color.rgb = RGBColor(255, 0, 0)
+            run.font.bold = True
+            run.font.size = Pt(10)
+            run.font.name = 'Calibri'
+            
+        write_cell(table.cell(r_idx, 3), f"{int(row['Peratus'])}%", bold=True)
+        
+    r_idx = rows - 1
+    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True)
+    write_cell(table.cell(r_idx, 1), f"{int(total_semasa):,}", bold=True)
+    p = write_cell(table.cell(r_idx, 2), f"{int(total_kumulatif):,}", bold=True)
+    if total_mati > 0:
+        run = p.add_run()
+        run.text = f" ({int(total_mati)})"
+        run.font.color.rgb = RGBColor(255, 0, 0)
+        run.font.bold = True
+        run.font.size = Pt(10)
+        run.font.name = 'Calibri'
+    write_cell(table.cell(r_idx, 3), "", bold=True)
+
+    # Backgrounds and borders
+    for i, row in enumerate(table.rows):
+        for j, cell in enumerate(row.cells):
+            set_cell_border(cell, NAVY)
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            if i == 0 or j == 0 or i == len(table.rows) - 1:
+                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248)
+            else:
+                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+
+    txBox = slide_penyakit.shapes.add_textbox(Inches(0.5), Inches(6.8), Inches(6), Inches(0.4))
+    p = txBox.text_frame.paragraphs[0]
+    p.text = "Sumber data adalah daripada sistem eNotifikasi"
+    p.font.size = Pt(9); p.font.bold = True; p.font.name = 'Calibri'
+    p2 = txBox.text_frame.add_paragraph()
+    p2.text = "*(Mati)"
+    p2.font.size = Pt(9); p2.font.bold = True; p2.font.color.rgb = RGBColor(255, 0, 0); p2.font.name = 'Calibri'
+    
+    bottom_banner = slide_penyakit.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.8), Inches(6.833), Inches(0.5))
     bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
     p = bottom_banner.text_frame.paragraphs[0]
     p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
@@ -305,29 +447,26 @@ st.divider()
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
-        df_raw = pd.read_excel(uploaded_file)
-        stats_semasa, stats_kumulatif = process_data(df_raw, epi_week)
-        pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif)
+        file_bytes = uploaded_file.read()
+        total_rows, stats_semasa, stats_kumulatif, df_penyakit = load_and_process_data(file_bytes, epi_week)
+        pptx_buffer = generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year)
         
-        st.success(f"Slide deck generated! The presentation has been successfully created for ME {epi_week:02d}.")
+        st.success(f"Successfully processed {total_rows:,} records. Slide deck is ready!")
 
-        # Auto-download magic (Triggers browser download popup)
-        b64 = base64.b64encode(pptx_buffer.getvalue()).decode()
         filename = f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx"
         
+        # Auto-download magic
+        b64 = base64.b64encode(pptx_buffer.getvalue()).decode()
         st.markdown(
             f"""
             <a id="download-link" href="data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,{b64}" download="{filename}" style="display:none;">Download</a>
-            <script>
-                document.getElementById('download-link').click();
-            </script>
+            <script>document.getElementById('download-link').click();</script>
             """,
             unsafe_allow_html=True
         )
 
         st.info("Your download should start automatically. If it doesn't, click the button below:")
         
-        # Fallback button
         st.download_button(
             label="📥 Manual Download",
             data=pptx_buffer,
