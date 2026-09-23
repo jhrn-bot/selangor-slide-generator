@@ -265,13 +265,13 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
 
     headers = ["Minggu Epid", f"ME {epi_week:02d} (Semasa)", "", f"Kumulatif Sehingga ME {epi_week:02d}", ""]
     for i, txt in enumerate(headers):
-        write_cell(table.cell(0, i), txt, bold=True, size=17) # Font Size 17 applied
+        write_cell(table.cell(0, i), txt, bold=True, size=17) 
     table.cell(0, 1).merge(table.cell(0, 2))
     table.cell(0, 3).merge(table.cell(0, 4))
 
     row_labels = ["", "Jumlah Notifikasi", "Daftar Notifikasi", "Daftar Kes", "Abai Notifikasi", "Belum Ambil Tindakan", "Batal Daftar"]
     for i in range(1, 7):
-        write_cell(table.cell(i, 0), row_labels[i], bold=True, size=17) # Font Size 17 applied
+        write_cell(table.cell(i, 0), row_labels[i], bold=True, size=17) 
 
     write_cell(table.cell(1, 1), f"{stats_semasa['total']:,}", bold=True, size=17)
     write_cell(table.cell(1, 3), f"{stats_kumulatif['total']:,}", bold=True, size=17)
@@ -388,7 +388,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, epi_week, year):
         for j, cell in enumerate(row.cells):
             set_cell_border(cell, NAVY)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i == 0 or j == 0 or i == len(table.rows) - 1:
+            # FILL BACKGROUND: Only header row (0) and JUMLAH row (last) are filled. All columns inside are white.
+            if i == 0 or i == len(table.rows) - 1:
                 cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(226, 237, 248)
             else:
                 cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
