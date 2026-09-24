@@ -429,7 +429,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     return (
         len(df), stats_semasa, stats_kumulatif, df_penyakit, 
         df_district, ct, hep_ct, dn_ct, dn_exc_ct, hep_dn_ct,
-        lewat_24h_df, lewat_7d_df
+        lewat_24h_df, lewat_7d_df, df_24h, df_7d
     )
 
 # ---------------------------------------------------------
@@ -1326,54 +1326,14 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     return buffer
 
 # ---------------------------------------------------------
-# Excel Generator for Lewat Notifikasi (2 Sheets)
+# Excel Generator for Lewat Notifikasi (Raw Records - 2 Sheets)
 # ---------------------------------------------------------
 @st.cache_data
-def generate_lewat_excel(lewat_24h_df, lewat_7d_df):
-    def format_df_for_excel(df_lewat):
-        if df_lewat.empty:
-            cols = ['Diagnosis'] + VALID_DISTRICTS + ['JUMLAH']
-            return pd.DataFrame(columns=cols)
-
-        dist_sums = {d: {'total': 0, 'swasta': 0} for d in VALID_DISTRICTS}
-        total_all = 0
-        swasta_all = 0
-
-        rows = []
-        for _, r in df_lewat.iterrows():
-            row_dict = {'Diagnosis': r['DIAGNOSIS']}
-            for d in VALID_DISTRICTS:
-                tot = int(r.get(f"{d}_tot", 0))
-                sw = int(r.get(f"{d}_swasta", 0))
-                dist_sums[d]['total'] += tot
-                dist_sums[d]['swasta'] += sw
-                row_dict[d] = format_cell_stat(tot, sw, zero_as_dash=True)
-            
-            r_tot = int(r.get('TOTAL', 0))
-            r_sw = int(r.get('SWASTA', 0))
-            total_all += r_tot
-            swasta_all += r_sw
-            row_dict['JUMLAH'] = format_cell_stat(r_tot, r_sw, zero_as_dash=True)
-            rows.append(row_dict)
-
-        # Append JUMLAH summary row
-        summary_row = {'Diagnosis': 'JUMLAH'}
-        for d in VALID_DISTRICTS:
-            tot = dist_sums[d]['total']
-            sw = dist_sums[d]['swasta']
-            summary_row[d] = format_cell_stat(tot, sw, zero_as_dash=False)
-        summary_row['JUMLAH'] = format_cell_stat(total_all, swasta_all, zero_as_dash=False)
-        rows.append(summary_row)
-
-        return pd.DataFrame(rows)
-
-    excel_24h = format_df_for_excel(lewat_24h_df)
-    excel_7d = format_df_for_excel(lewat_7d_df)
-
+def generate_lewat_excel(df_24h_raw, df_7d_raw):
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        excel_24h.to_excel(writer, sheet_name="Lewat 24 Jam", index=False)
-        excel_7d.to_excel(writer, sheet_name="Lewat 7 Hari", index=False)
+        df_24h_raw.to_excel(writer, sheet_name="Lewat 24 Jam", index=False)
+        df_7d_raw.to_excel(writer, sheet_name="Lewat 7 Hari", index=False)
     buffer.seek(0)
     return buffer
 
@@ -1392,7 +1352,7 @@ if uploaded_file:
         (
             total_rows, stats_semasa, stats_kumulatif, df_penyakit, 
             df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, 
-            df_hep_dn_ct, lewat_24h_df, lewat_7d_df
+            df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_24h_raw, df_7d_raw
         ) = load_and_process_data(
             uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14
         )
@@ -1403,7 +1363,7 @@ if uploaded_file:
             lewat_24h_df, lewat_7d_df, epi_week, year
         )
         
-        excel_buffer = generate_lewat_excel(lewat_24h_df, lewat_7d_df)
+        excel_buffer = generate_lewat_excel(df_24h_raw, df_7d_raw)
 
         st.success(f"Successfully processed {total_rows:,} records. Outputs are ready!")
 
@@ -1421,7 +1381,7 @@ if uploaded_file:
             )
         with col2:
             st.download_button(
-                label="📊 Download Lewat Notifikasi (.xlsx)",
+                label="📊 Download Raw Lewat Data (.xlsx)",
                 data=excel_buffer,
                 file_name=filename_excel,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
