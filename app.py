@@ -1326,6 +1326,58 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     return buffer
 
 # ---------------------------------------------------------
+# Excel Generator for Lewat Notifikasi (2 Sheets)
+# ---------------------------------------------------------
+@st.cache_data
+def generate_lewat_excel(lewat_24h_df, lewat_7d_df):
+    def format_df_for_excel(df_lewat):
+        if df_lewat.empty:
+            cols = ['Diagnosis'] + VALID_DISTRICTS + ['JUMLAH']
+            return pd.DataFrame(columns=cols)
+
+        dist_sums = {d: {'total': 0, 'swasta': 0} for d in VALID_DISTRICTS}
+        total_all = 0
+        swasta_all = 0
+
+        rows = []
+        for _, r in df_lewat.iterrows():
+            row_dict = {'Diagnosis': r['DIAGNOSIS']}
+            for d in VALID_DISTRICTS:
+                tot = int(r.get(f"{d}_tot", 0))
+                sw = int(r.get(f"{d}_swasta", 0))
+                dist_sums[d]['total'] += tot
+                dist_sums[d]['swasta'] += sw
+                row_dict[d] = format_cell_stat(tot, sw, zero_as_dash=True)
+            
+            r_tot = int(r.get('TOTAL', 0))
+            r_sw = int(r.get('SWASTA', 0))
+            total_all += r_tot
+            swasta_all += r_sw
+            row_dict['JUMLAH'] = format_cell_stat(r_tot, r_sw, zero_as_dash=True)
+            rows.append(row_dict)
+
+        # Append JUMLAH summary row
+        summary_row = {'Diagnosis': 'JUMLAH'}
+        for d in VALID_DISTRICTS:
+            tot = dist_sums[d]['total']
+            sw = dist_sums[d]['swasta']
+            summary_row[d] = format_cell_stat(tot, sw, zero_as_dash=False)
+        summary_row['JUMLAH'] = format_cell_stat(total_all, swasta_all, zero_as_dash=False)
+        rows.append(summary_row)
+
+        return pd.DataFrame(rows)
+
+    excel_24h = format_df_for_excel(lewat_24h_df)
+    excel_7d = format_df_for_excel(lewat_7d_df)
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        excel_24h.to_excel(writer, sheet_name="Lewat 24 Jam", index=False)
+        excel_7d.to_excel(writer, sheet_name="Lewat 7 Hari", index=False)
+    buffer.seek(0)
+    return buffer
+
+# ---------------------------------------------------------
 # UI Runner
 # ---------------------------------------------------------
 st.title("📊 Selangor Epi Review Slide Generator")
@@ -1351,16 +1403,34 @@ if uploaded_file:
             lewat_24h_df, lewat_7d_df, epi_week, year
         )
         
-        st.success(f"Successfully processed {total_rows:,} records. Slide deck is ready!")
+        excel_buffer = generate_lewat_excel(lewat_24h_df, lewat_7d_df)
 
-        filename = f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx"
-        
-        st.download_button(
-            label="📥 Download Presentation (.pptx)",
-            data=pptx_buffer,
-            file_name=filename,
-            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            use_container_width=True
-        )
+        st.success(f"Successfully processed {total_rows:,} records. Outputs are ready!")
+
+        filename_pptx = f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx"
+        filename_excel = f"Senarai_Lewat_Notifikasi_ME{epi_week:02d}_{year}.xlsx"
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                label="📥 Download Presentation (.pptx)",
+                data=pptx_buffer,
+                file_name=filename_pptx,
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                use_container_width=True
+            )
+        with col2:
+            st.download_button(
+                label="📊 Download Lewat Notifikasi (.xlsx)",
+                data=excel_buffer,
+                file_name=filename_excel,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
 else:
-    st.info("⚠️ Please upload the Excel file. The presentation will automatically generate once uploaded.")
+    st.info("⚠️ Please upload the Excel file. The presentation and report files will automatically generate once uploaded.")
+```
+
+### Changes implemented:
+1. **Added `generate_lewat_excel(lewat_24h_df, lewat_7d_df)`**: Formats the exact statistics (e.g. `10 (1)` or `-`) across all districts and exports two clean sheets: `"Lewat 24 Jam"` and `"Lewat 7 Hari"`.
+2. **Dual Download Buttons**: Used `st.columns(2)` so users can download either the PowerPoint presentation (`.pptx`) or the dual-sheet Excel file (`.xlsx`) directly.
