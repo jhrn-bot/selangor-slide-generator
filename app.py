@@ -1,6 +1,7 @@
 import datetime
 import io
 import os
+import re
 import urllib.request
 import pandas as pd
 import streamlit as st
@@ -22,6 +23,7 @@ st.set_page_config(
 )
 
 GOOGLE_SLIDES_ID = "1QFVgrEPqgiDditxLQhHRLapQOqaCjZnt"
+WABAK_SHEET_ID = "1uVcFp4zSF_gIHdq1BedDFNpuQks0E5AxKJnHbXMsYJE"
 
 VALID_DISTRICTS = [
     'GOMBAK', 'HULU LANGAT', 'HULU SELANGOR', 'KLANG', 
@@ -154,6 +156,61 @@ def format_cell_stat(tot, swasta, zero_as_dash=True):
     if swasta > 0:
         return f"{tot} ({swasta})"
     return f"{tot}"
+
+def write_wabak_cell(cell, text, bold=True, align_left=False, size=11):
+    """Formats cell text, writing any bracketed number (e.g. '(23)') in bold red font."""
+    cell.text = ""
+    tf = cell.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.alignment = PP_ALIGN.LEFT if align_left else PP_ALIGN.CENTER
+    
+    text_str = str(text).strip()
+    if text_str == '' or text_str.upper() == 'NAN':
+        text_str = "-"
+
+    # Match format like "422 (23)" or "1,294\n(59)" or "(23)"
+    parts = re.split(r'(\([0-9,]+\))', text_str)
+    for part in parts:
+        if not part:
+            continue
+        run = p.add_run()
+        run.text = part
+        run.font.size = Pt(size)
+        run.font.name = 'Calibri'
+        run.font.bold = bold
+        if re.match(r'^\([0-9,]+\)$', part.strip()):
+            run.font.color.rgb = RGBColor(220, 0, 0)  # Red for bracketed values
+        else:
+            run.font.color.rgb = RGBColor(0, 0, 0)
+    return p
+
+def fetch_wabak_data():
+    """Fetches and parses sheet 'final', columns P to AA starting row 2 from Google Sheets."""
+    try:
+        url = f"https://docs.google.com/spreadsheets/d/{WABAK_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=final"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as resp:
+            df_raw = pd.read_csv(io.BytesIO(resp.read()), header=None)
+
+        # Columns P to AA correspond to zero-based indexes 15 to 26 (total 12 columns)
+        # Row 2 corresponds to index 1
+        df_slice = df_raw.iloc[1:, 15:27].copy().reset_index(drop=True)
+        
+        # Row 0 and 1 in df_slice may be subheaders; find data rows
+        # Drop rows where diagnosis / column Q (index 1 in df_slice) is empty or header repetition
+        clean_rows = []
+        for _, r in df_slice.iterrows():
+            col_b = str(r.iloc[1]).strip()
+            if col_b and col_b.lower() not in ['nan', '', 'wabak', 'diagnosis']:
+                clean_rows.append(r.values)
+                
+        if clean_rows:
+            return pd.DataFrame(clean_rows)
+        return pd.DataFrame()
+    except Exception as e:
+        st.warning(f"Could not fetch Wabak Google Sheet: {e}")
+        return pd.DataFrame()
 
 def fetch_google_slides_pptx(file_id):
     url = f"https://docs.google.com/presentation/d/{file_id}/export/pptx"
@@ -436,7 +493,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
 # PPTX Generator
 # ---------------------------------------------------------
 @st.cache_data
-def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, lewat_24h_df, lewat_7d_df, epi_week, year):
+def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_wabak, epi_week, year):
     try:
         remote_buffer = fetch_google_slides_pptx(GOOGLE_SLIDES_ID)
         prs = Presentation(remote_buffer)
@@ -1320,6 +1377,101 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
     bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
 
+    # --- Slide 12+: Bilangan Keseluruhan Episod Wabak / Kluster Mengikut Daerah ---
+    if not df_wabak.empty:
+        chunk_size = 10
+        total_rows = len(df_wabak)
+        chunks = [df_wabak.iloc[i:i + chunk_size] for i in range(0, total_rows, chunk_size)]
+        
+        district_codes = ["GBK", "HL", "HS", "KLG", "KL", "KS", "PTG", "SB", "SPG"]
+        
+        for page_idx, chunk in enumerate(chunks):
+            slide_w = prs.slides.add_slide(prs.slide_layouts[6])
+
+            if os.path.exists("logo.png"):
+                slide_w.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
+
+            line = slide_w.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
+            line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
+
+            txBox = slide_w.shapes.add_textbox(Inches(2.4), Inches(0.32), Inches(10.5), Inches(0.9))
+            p = txBox.text_frame.paragraphs[0]
+            p.text = "Bilangan Keseluruhan Episod Wabak / Kluster Mengikut Daerah"
+            p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
+            
+            p2 = txBox.text_frame.add_paragraph()
+            p2.text = f"Sehingga ME {epi_week:02d} / {year}"
+            p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
+
+            t_rows = len(chunk) + 2  # 2 Header rows + data rows
+            t_cols = 12
+            table_shape = slide_w.shapes.add_table(t_rows, t_cols, Inches(0.4), Inches(1.4), Inches(12.533), Inches(5.1))
+            table = table_shape.table
+
+            # Column dimensions
+            table.columns[0].width = Inches(0.75)   # Bil
+            table.columns[1].width = Inches(2.45)   # Wabak
+            for d_idx in range(2, 11):
+                table.columns[d_idx].width = Inches(0.92)  # 9 Districts
+            table.columns[11].width = Inches(1.15)  # Kumulatif
+
+            # Row 0
+            write_cell(table.cell(0, 0), "Bil", bold=True, size=11)
+            write_cell(table.cell(0, 1), "Wabak", bold=True, size=11)
+            write_cell(table.cell(0, 2), f"Pecahan kumulatif mengikut daerah (ME {epi_week:02d} / {year})", bold=True, size=11)
+            write_cell(table.cell(0, 11), f"Kumulatif\nsehingga ME\n({epi_week:02d} / {year})", bold=True, size=10)
+
+            # Row 1
+            for j, code in enumerate(district_codes):
+                write_cell(table.cell(1, j + 2), code, bold=True, size=11)
+
+            # Merge spans
+            table.cell(0, 0).merge(table.cell(1, 0))
+            table.cell(0, 1).merge(table.cell(1, 1))
+            table.cell(0, 11).merge(table.cell(1, 11))
+            
+            # Merge columns 2 through 10 across Row 0 for district category
+            cell_start = table.cell(0, 2)
+            cell_end = table.cell(0, 10)
+            cell_start.merge(cell_end)
+            write_cell(cell_start, f"Pecahan kumulatif mengikut daerah (ME {epi_week:02d} / {year})", bold=True, size=11)
+
+            # Populate data rows
+            for r_i, (_, r_data) in enumerate(chunk.iterrows()):
+                curr_row = r_i + 2
+                row_num = page_idx * chunk_size + (r_i + 1)
+                
+                # Bil
+                write_wabak_cell(table.cell(curr_row, 0), str(row_num), bold=True, size=11)
+                # Wabak / Diagnosis name
+                write_wabak_cell(table.cell(curr_row, 1), str(r_data.iloc[1]), bold=True, align_left=True, size=11)
+                
+                # 9 District columns (iloc 2 to 10)
+                for c_i in range(9):
+                    val = r_data.iloc[c_i + 2] if (c_i + 2) < len(r_data) else "-"
+                    write_wabak_cell(table.cell(curr_row, c_i + 2), val, bold=True, size=11)
+                    
+                # Kumulatif column (iloc 11)
+                val_kum = r_data.iloc[11] if 11 < len(r_data) else "-"
+                write_wabak_cell(table.cell(curr_row, 11), val_kum, bold=True, size=11)
+
+            # Set styling: Light grey headers and clean borders
+            for i, row in enumerate(table.rows):
+                for j, cell in enumerate(row.cells):
+                    set_cell_border(cell, NAVY)
+                    cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                    if i in [0, 1]:
+                        cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
+                    else:
+                        cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+
+            bottom_banner = slide_w.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
+            bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
+            p = bottom_banner.text_frame.paragraphs[0]
+            p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
+            p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
+            bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+
     buffer = io.BytesIO()
     prs.save(buffer)
     buffer.seek(0)
@@ -1357,10 +1509,12 @@ if uploaded_file:
             uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14
         )
         
+        df_wabak = fetch_wabak_data()
+
         pptx_buffer = generate_pptx(
             stats_semasa, stats_kumulatif, df_penyakit, df_district, 
             df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, 
-            lewat_24h_df, lewat_7d_df, epi_week, year
+            lewat_24h_df, lewat_7d_df, df_wabak, epi_week, year
         )
         
         excel_buffer = generate_lewat_excel(df_24h_raw, df_7d_raw)
