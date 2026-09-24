@@ -224,11 +224,25 @@ def fetch_bencana_data():
 
 @st.cache_data(ttl=600)
 def fetch_graf_data():
-    req = urllib.request.Request(f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER", headers={'User-Agent': 'Mozilla/5.0'})
+    # Range B2:AD extracts Row 2 headers (Minggu Epid + Diseases) and rows 3+ data
+    req = urllib.request.Request(
+        f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=B2:AD",
+        headers={'User-Agent': 'Mozilla/5.0'}
+    )
     try:
         with urllib.request.urlopen(req) as resp:
-            return pd.read_csv(io.BytesIO(resp.read()))
-    except: return pd.DataFrame()
+            df = pd.read_csv(io.BytesIO(resp.read()))
+            df.columns = [str(c).strip() for c in df.columns]
+            
+            # Clean up 'Minggu Epid' column (Col B)
+            first_col = df.columns[0]
+            df = df.dropna(subset=[first_col])
+            df[first_col] = pd.to_numeric(df[first_col], errors='coerce')
+            df = df.dropna(subset=[first_col])
+            return df
+    except Exception as e:
+        st.warning(f"Note: Could not retrieve chart data: {e}")
+        return pd.DataFrame()
 
 # ---------------------------------------------------------
 # Main Data Processing
@@ -638,16 +652,17 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide X: Tren Wabak Chart ---
     if not df_graf.empty:
-        sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
+        sl = prs.slides.add_slide(prs.slide_layouts[6])
+        add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
-        df_g = df_graf.dropna(how='all', axis=1).dropna(how='all', axis=0)
-        categories = [str(x).replace('.0', '') for x in df_g.iloc[:, 0].tolist()]
-        series_names = df_g.columns[1:].tolist()
+        # Col B (index 0 in df_graf) is 'Minggu Epid', Cols C..AD (index 1..) are diseases
+        categories = [str(int(float(x))) for x in df_graf.iloc[:, 0].tolist()]
+        series_names = df_graf.columns[1:].tolist()
         
         chart_data = CategoryChartData()
         chart_data.categories = categories
         for sn in series_names:
-            chart_data.add_series(sn, pd.to_numeric(df_g[sn], errors='coerce').fillna(0).tolist())
+            chart_data.add_series(sn, pd.to_numeric(df_graf[sn], errors='coerce').fillna(0).tolist())
             
         chart = sl.shapes.add_chart(XL_CHART_TYPE.COLUMN_STACKED_100, Inches(0.4), Inches(1.5), Inches(10), Inches(5.0), chart_data).chart
         chart.has_legend = True
@@ -658,18 +673,22 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             sn = series.name.strip()
             color = None
             for key, c in DISEASE_COLORS.items():
-                if key.lower() in sn.lower():
+                if key.lower() in sn.lower() or sn.lower() in key.lower():
                     color = c
                     break
             if color:
                 series.format.fill.solid()
                 series.format.fill.fore_color.rgb = color
 
+        # Dashed line at year reset (where Epi Week drops from 52/53 back to 1)
         idx_reset = -1
         for i in range(1, len(categories)):
-            if int(categories[i]) < int(categories[i-1]) and int(categories[i-1]) >= 50:
-                idx_reset = i
-                break
+            try:
+                if int(categories[i]) < int(categories[i-1]) and int(categories[i-1]) >= 45:
+                    idx_reset = i
+                    break
+            except ValueError:
+                pass
         
         if idx_reset != -1:
             plot_width = 10.0
