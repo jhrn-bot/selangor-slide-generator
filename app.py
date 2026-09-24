@@ -14,7 +14,7 @@ from pptx.oxml.xmlchemy import OxmlElement
 from pptx.oxml.ns import qn
 
 # ---------------------------------------------------------
-# Page Configuration
+# Page Configuration & Constants
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Selangor Epi Review Slide Generator",
@@ -56,7 +56,6 @@ EXCLUSION_DIAGNOSES_14 = (
     'MEASLES', 'HIV/AIDS', 'HIV'
 )
 
-# Diagnosis Notification Period Rules
 DIAG_TEMPOH_24H = [
     'DENGUE/DHF', 'DENGUE', 'COVID-19', 'HFMD', 'MEASLES', 
     'AVIAN INFLUENZA', 'FOOD POISONING', 'MERS-COV', 'MALARIA', 
@@ -77,7 +76,7 @@ NAVY = RGBColor(27, 54, 93)
 LIGHT_GREY = RGBColor(211, 211, 211)  # #D3D3D3
 
 # ---------------------------------------------------------
-# Helper Functions: Epiweek Calculation
+# Helper Functions: Epiweek & Date Parsing
 # ---------------------------------------------------------
 def get_previous_epi_week():
     myt_zone = datetime.timezone(datetime.timedelta(hours=8))
@@ -101,7 +100,6 @@ def get_previous_epi_week():
 epi_week, year = get_previous_epi_week()
 
 def parse_excel_date(val):
-    """Converts Excel serial number, string, or datetime object into a datetime.date."""
     if pd.isna(val) or val == '' or str(val).strip().upper() == 'NAN':
         return None
     if isinstance(val, (datetime.datetime, datetime.date, pd.Timestamp)):
@@ -117,7 +115,7 @@ def parse_excel_date(val):
         return None
 
 # ---------------------------------------------------------
-# Table Formatting Helpers
+# Presentation Styling Helpers
 # ---------------------------------------------------------
 def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
     tc = cell._tc
@@ -157,60 +155,64 @@ def format_cell_stat(tot, swasta, zero_as_dash=True):
         return f"{tot} ({swasta})"
     return f"{tot}"
 
-def write_wabak_cell(cell, text, bold=True, align_left=False, size=11):
-    """Formats cell text, writing any bracketed number (e.g. '(23)') in bold red font."""
+def write_wabak_cell(cell, text, bold=True, align_left=False, size=13):
     cell.text = ""
     tf = cell.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.alignment = PP_ALIGN.LEFT if align_left else PP_ALIGN.CENTER
     
-    text_str = str(text).strip()
-    if text_str == '' or text_str.upper() == 'NAN':
-        text_str = "-"
-
-    # Match format like "422 (23)" or "1,294\n(59)" or "(23)"
-    parts = re.split(r'(\([0-9,]+\))', text_str)
-    for part in parts:
-        if not part:
-            continue
+    val_str = str(text).strip()
+    if val_str.lower() in ["nan", "none", ""]:
+        val_str = "-"
+        
+    match = re.search(r'^(.*?)\s*(\(.*?\))$', val_str)
+    if match and '(' in val_str and ')' in val_str:
+        main_part = match.group(1).strip()
+        paren_part = match.group(2).strip()
+        
+        if main_part:
+            run1 = p.add_run()
+            run1.text = main_part + " "
+            run1.font.size = Pt(size)
+            run1.font.name = 'Calibri'
+            run1.font.bold = bold
+            run1.font.color.rgb = NAVY
+            
+        run2 = p.add_run()
+        run2.text = paren_part
+        run2.font.size = Pt(size)
+        run2.font.name = 'Calibri'
+        run2.font.bold = bold
+        run2.font.color.rgb = RGBColor(255, 0, 0)
+    else:
         run = p.add_run()
-        run.text = part
+        run.text = val_str
         run.font.size = Pt(size)
         run.font.name = 'Calibri'
         run.font.bold = bold
-        if re.match(r'^\([0-9,]+\)$', part.strip()):
-            run.font.color.rgb = RGBColor(220, 0, 0)  # Red for bracketed values
-        else:
-            run.font.color.rgb = RGBColor(0, 0, 0)
-    return p
+        run.font.color.rgb = NAVY
 
-def fetch_wabak_data():
-    """Fetches and parses sheet 'final', columns P to AA starting row 2 from Google Sheets."""
-    try:
-        url = f"https://docs.google.com/spreadsheets/d/{WABAK_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=final"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as resp:
-            df_raw = pd.read_csv(io.BytesIO(resp.read()), header=None)
-
-        # Columns P to AA correspond to zero-based indexes 15 to 26 (total 12 columns)
-        # Row 2 corresponds to index 1
-        df_slice = df_raw.iloc[1:, 15:27].copy().reset_index(drop=True)
-        
-        # Row 0 and 1 in df_slice may be subheaders; find data rows
-        # Drop rows where diagnosis / column Q (index 1 in df_slice) is empty or header repetition
-        clean_rows = []
-        for _, r in df_slice.iterrows():
-            col_b = str(r.iloc[1]).strip()
-            if col_b and col_b.lower() not in ['nan', '', 'wabak', 'diagnosis']:
-                clean_rows.append(r.values)
-                
-        if clean_rows:
-            return pd.DataFrame(clean_rows)
-        return pd.DataFrame()
-    except Exception as e:
-        st.warning(f"Could not fetch Wabak Google Sheet: {e}")
-        return pd.DataFrame()
+def write_header_with_red_me(cell, prefix, me_str, size=13, newline=False):
+    cell.text = ""
+    tf = cell.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.alignment = PP_ALIGN.CENTER
+    
+    run1 = p.add_run()
+    run1.text = prefix + ("\n" if newline else " ")
+    run1.font.size = Pt(size)
+    run1.font.name = 'Calibri'
+    run1.font.bold = True
+    run1.font.color.rgb = NAVY
+    
+    run2 = p.add_run()
+    run2.text = me_str
+    run2.font.size = Pt(size)
+    run2.font.name = 'Calibri'
+    run2.font.bold = True
+    run2.font.color.rgb = RGBColor(255, 0, 0)
 
 def fetch_google_slides_pptx(file_id):
     url = f"https://docs.google.com/presentation/d/{file_id}/export/pptx"
@@ -218,31 +220,45 @@ def fetch_google_slides_pptx(file_id):
     with urllib.request.urlopen(req) as response:
         return io.BytesIO(response.read())
 
+@st.cache_data(ttl=600)
+def fetch_wabak_data():
+    url = f"https://docs.google.com/spreadsheets/d/{WABAK_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=final"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    try:
+        with urllib.request.urlopen(req) as resp:
+            df_sheet = pd.read_csv(io.BytesIO(resp.read()), header=None)
+            df_p_aa = df_sheet.iloc[1:, 15:27].copy()
+            df_p_aa = df_p_aa.dropna(subset=[df_p_aa.columns[1]])
+            df_p_aa = df_p_aa[df_p_aa.iloc[:, 1].astype(str).str.strip() != '']
+            return df_p_aa
+    except Exception as e:
+        st.warning(f"Note: Could not retrieve Wabak sheet automatically: {e}")
+        return pd.DataFrame()
+
 # ---------------------------------------------------------
-# Data Extraction & Processing
+# Data Processing
 # ---------------------------------------------------------
 @st.cache_data
 def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     df = pd.read_excel(file)
-    col_me = df.columns[5]    # Column F (0-indexed: 5)
-    col_bc = df.columns[54]   # Column BC (Tarikh Notifikasi)
-    col_bi = df.columns[60]   # Column BI (Tarikh Diagnosis)
-    col_bp = df.columns[67]   # Column BP (Tempat Notifikasi)
-    col_br = df.columns[69]   # Column BR (Status Notifikasi)
-    col_bt = df.columns[71]   # Column BT (Kematian)
-    col_cd = df.columns[81]   # Column CD (Kategori Tempat Notifikasi)
-    col_dt = df.columns[123]  # Column DT (Daerah)
-    col_dx = df.columns[127]  # Column DX (Diagnosis)
-    col_dy = df.columns[128]  # Column DY (Subdiagnosis)
+    col_me = df.columns[5]    # Column F
+    col_bc = df.columns[54]   # Column BC
+    col_bi = df.columns[60]   # Column BI
+    col_bp = df.columns[67]   # Column BP
+    col_br = df.columns[69]   # Column BR
+    col_bt = df.columns[71]   # Column BT
+    col_cd = df.columns[81]   # Column CD
+    col_dt = df.columns[123]  # Column DT
+    col_dx = df.columns[127]  # Column DX
+    col_dy = df.columns[128]  # Column DY
 
-    # Base filter: official Selangor districts & numeric epiweek
     df_clean = df[df[col_dt].isin(VALID_DISTRICTS)].copy()
     df_clean[col_me] = pd.to_numeric(df_clean[col_me], errors='coerce')
     
     df_semasa = df_clean[df_clean[col_me] == target_me]
     df_kumulatif = df_clean[df_clean[col_me] <= target_me]
     
-    # 1. Slide 2 Stats
+    # Slide 2 Stats
     def get_stats(df_subset):
         total = len(df_subset)
         counts = df_subset[col_br].value_counts().to_dict()
@@ -268,7 +284,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     stats_semasa = get_stats(df_semasa)
     stats_kumulatif = get_stats(df_kumulatif)
 
-    # 2. Slide 3: Penyakit
+    # Slide 3: Penyakit
     df_clean[col_dx] = df_clean[col_dx].astype(str).str.strip().str.upper()
     df_clean[col_dx] = df_clean[col_dx].replace({'MONKEYPOX': 'MPOX'})
     df_kumu_penyakit = df_clean[df_clean[col_me] <= target_me]
@@ -298,7 +314,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     if not df_penyakit.empty:
         df_penyakit = df_penyakit.sort_values(by=['Kumulatif', 'Penyakit'], ascending=[False, True])
 
-    # 3. Slide 4: District
+    # Slide 4: District
     df_district_data = []
     for d in VALID_DISTRICTS:
         df_d = df_kumulatif[df_kumulatif[col_dt] == d]
@@ -329,7 +345,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
 
     district_names = [d[0] for d in DISTRICT_ABBR]
 
-    # 4. Slide 5: Belum Ambil Tindakan
+    # Slide 5: Belum Ambil Tindakan
     df_belum = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'BELUM AMBIL TINDAKAN')
@@ -346,7 +362,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     else:
         ct = pd.DataFrame(columns=[col_dx] + district_names + ['JUM'])
 
-    # 5. Slide 6: Viral Hepatitis Subdiagnosis (Belum Ambil Tindakan)
+    # Slide 6: Viral Hepatitis Subdiagnosis (Belum Ambil Tindakan)
     df_hep = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'BELUM AMBIL TINDAKAN') &
@@ -364,7 +380,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     else:
         hep_ct = pd.DataFrame(columns=[col_dy] + district_names + ['JUM'])
 
-    # 6. Slide 7: Daftar Notifikasi (Inclusion List)
+    # Slide 7: Daftar Notifikasi (Inclusion List)
     df_dn = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
@@ -381,7 +397,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     else:
         dn_ct = pd.DataFrame(columns=[col_dx] + district_names + ['JUM'])
 
-    # 7. Slide 8: Daftar Notifikasi (Exclusion List)
+    # Slide 8: Daftar Notifikasi (Exclusion List)
     df_dn_exc = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
@@ -398,7 +414,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     else:
         dn_exc_ct = pd.DataFrame(columns=[col_dx] + district_names + ['JUM'])
 
-    # 8. Slide 9: Viral Hepatitis Subdiagnosis (Daftar Notifikasi)
+    # Slide 9: Viral Hepatitis Subdiagnosis (Daftar Notifikasi)
     df_hep_dn = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
@@ -416,16 +432,11 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     else:
         hep_dn_ct = pd.DataFrame(columns=[col_dy] + district_names + ['JUM'])
 
-    # ---------------------------------------------------------
-    # 9 & 10. Lewat Notifikasi (24 Jam & 7 Hari)
-    # ---------------------------------------------------------
+    # Lewat Notifikasi (24 Jam & 7 Hari)
     df_lewat_base = df_clean[df_clean[col_me] == target_me].copy()
-    
-    # Filter out if Column BP contains 'PKD' or 'PEJABAT'
     bp_series = df_lewat_base[col_bp].fillna('').astype(str).str.upper()
     df_lewat_base = df_lewat_base[~bp_series.str.contains('PKD|PEJABAT')].copy()
 
-    # Parse dates (Column BC - Tarikh Notifikasi, Column BI - Tarikh Diagnosis)
     parsed_bc = df_lewat_base[col_bc].apply(parse_excel_date)
     parsed_bi = df_lewat_base[col_bi].apply(parse_excel_date)
 
@@ -439,7 +450,6 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     df_lewat_base['DIFF_DAYS'] = diff_days
     df_lewat_base['IS_SWASTA'] = df_lewat_base[col_cd].fillna('').astype(str).str.upper().str.contains('SWASTA')
 
-    # Aggregator for Lewat slides
     def aggregate_lewat(df_subset):
         grouped = {}
         for _, r in df_subset.iterrows():
@@ -469,25 +479,34 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
             df_res = df_res.sort_values(by=['TOTAL', 'DIAGNOSIS'], ascending=[False, True]).reset_index(drop=True)
         return df_res
 
-    # 24 Jam: exceed 2 days
     df_24h = df_lewat_base[
         df_lewat_base[col_dx].isin(DIAG_TEMPOH_24H) & 
         (df_lewat_base['DIFF_DAYS'] > 2)
     ].copy()
     lewat_24h_df = aggregate_lewat(df_24h)
 
-    # 7 Hari: exceed 7 days
     df_7d = df_lewat_base[
         df_lewat_base[col_dx].isin(DIAG_TEMPOH_7D) & 
         (df_lewat_base['DIFF_DAYS'] > 7)
     ].copy()
     lewat_7d_df = aggregate_lewat(df_7d)
 
+    # Fetch wabak Google Sheet data
+    df_wabak = fetch_wabak_data()
+
     return (
         len(df), stats_semasa, stats_kumulatif, df_penyakit, 
         df_district, ct, hep_ct, dn_ct, dn_exc_ct, hep_dn_ct,
-        lewat_24h_df, lewat_7d_df, df_24h, df_7d
+        lewat_24h_df, lewat_7d_df, df_24h, df_7d, df_wabak
     )
+
+def generate_lewat_excel(df_24h, df_7d):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_24h.to_excel(writer, sheet_name='Lewat 24 Jam', index=False)
+        df_7d.to_excel(writer, sheet_name='Lewat 7 Hari', index=False)
+    output.seek(0)
+    return output
 
 # ---------------------------------------------------------
 # PPTX Generator
@@ -565,10 +584,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide 2: Analisa e-Notifikasi ---
     slide_notif = prs.slides.add_slide(prs.slide_layouts[6])
-
     if os.path.exists("logo.png"):
         slide_notif.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-
     line = slide_notif.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
@@ -576,7 +593,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p = txBox.text_frame.paragraphs[0]
     p.text = "Analisa e-Notifikasi"
     p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
-    
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"ME {epi_week:02d} /{year}"
     p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
@@ -584,11 +600,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     rows, cols = 7, 5
     table_shape = slide_notif.shapes.add_table(rows, cols, Inches(1.15), Inches(1.7), Inches(11.0), Inches(4.7))
     table = table_shape.table
-    table.columns[0].width = Inches(2.2)
-    table.columns[1].width = Inches(2.2)
-    table.columns[2].width = Inches(2.2)
-    table.columns[3].width = Inches(2.2)
-    table.columns[4].width = Inches(2.2)
+    for c in range(5):
+        table.columns[c].width = Inches(2.2)
 
     headers = ["Minggu Epid", f"ME {epi_week:02d} (Semasa)", "", f"Kumulatif Sehingga ME {epi_week:02d}", ""]
     for i, txt in enumerate(headers):
@@ -652,10 +665,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide 3: Bilangan Daftar Kes Mengikut Penyakit ---
     slide_penyakit = prs.slides.add_slide(prs.slide_layouts[6])
-
     if os.path.exists("logo.png"):
         slide_penyakit.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-
     line = slide_penyakit.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
@@ -663,7 +674,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p = txBox.text_frame.paragraphs[0]
     p.text = "Bilangan Daftar Kes Mengikut Penyakit"
     p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
-    
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"ME {epi_week:02d} / {year}"
     p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
@@ -690,14 +700,12 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         r_idx = i + 1
         write_cell(table.cell(r_idx, 0), str(row['Penyakit']), bold=True, align_left=True) 
         write_cell(table.cell(r_idx, 1), f"{int(row['Semasa']):,}", bold=True) 
-        
         p = write_cell(table.cell(r_idx, 2), f"{int(row['Kumulatif']):,}", bold=True) 
         if row['Mati'] > 0:
             run = p.add_run()
             run.text = f" ({int(row['Mati'])})"
             run.font.color.rgb = RGBColor(255, 0, 0)
             run.font.bold = True; run.font.size = Pt(10); run.font.name = 'Calibri'
-            
         write_cell(table.cell(r_idx, 3), f"{int(row['Peratus'])}%", bold=True) 
         
     r_idx = rows - 1
@@ -737,10 +745,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide 4: Status pencapaian e-Notifikasi Mengikut Daerah ---
     slide_daerah = prs.slides.add_slide(prs.slide_layouts[6])
-
     if os.path.exists("logo.png"):
         slide_daerah.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-
     line = slide_daerah.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
@@ -748,7 +754,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p = txBox.text_frame.paragraphs[0]
     p.text = "Status pencapaian e-Notifikasi"
     p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
-    
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"Sehingga ME {epi_week:02d} / {year}"
     p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
@@ -757,20 +762,11 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     cols = 12
     table_shape = slide_daerah.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0))
     table = table_shape.table
-
-    col_widths = [
-        Inches(1.4), Inches(1.1), Inches(1.0), Inches(0.85),
-        Inches(0.95), Inches(0.85), Inches(1.0), Inches(0.85),
-        Inches(0.95), Inches(0.85), Inches(1.0), Inches(0.85)
-    ]
+    col_widths = [Inches(1.4), Inches(1.1), Inches(1.0), Inches(0.85), Inches(0.95), Inches(0.85), Inches(1.0), Inches(0.85), Inches(0.95), Inches(0.85), Inches(1.0), Inches(0.85)]
     for j, w in enumerate(col_widths):
         table.columns[j].width = w
 
-    headers = [
-        "DAERAH", "Jumlah\nNotifikasi", "Daftar\nNotifikasi", "%", 
-        "Daftar Kes", "%", "Abai\nNotifikasi", "%", 
-        "Batal Daftar", "%", "Belum\nAmbil\nTindakan", "%"
-    ]
+    headers = ["DAERAH", "Jumlah\nNotifikasi", "Daftar\nNotifikasi", "%", "Daftar Kes", "%", "Abai\nNotifikasi", "%", "Batal Daftar", "%", "Belum\nAmbil\nTindakan", "%"]
     for j, h in enumerate(headers):
         write_cell(table.cell(0, j), h, bold=True, size=12)
 
@@ -828,10 +824,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide 5: Senarai Kes Belum Ambil Tindakan Mengikut Diagnosis ---
     slide_belum = prs.slides.add_slide(prs.slide_layouts[6])
-
     if os.path.exists("logo.png"):
         slide_belum.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-
     line = slide_belum.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
@@ -839,7 +833,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p = txBox.text_frame.paragraphs[0]
     p.text = "Senarai Kes Belum Ambil Tindakan Mengikut Diagnosis"
     p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-    
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"ME {epi_week:02d} / {year}"
     p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
@@ -855,7 +848,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     h0 = ["DIAGNOSIS"] + [d[1] for d in DISTRICT_ABBR] + ["JUM"]
     for j, txt in enumerate(h0):
         write_cell(table.cell(0, j), txt, bold=True, size=16)
-
     h1 = [""] + [f"ME{epi_week:02d}"] * 10
     for j, txt in enumerate(h1):
         if j > 0:
@@ -867,7 +859,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     district_names = [d[0] for d in DISTRICT_ABBR]
     district_sums = {d: 0 for d in district_names}
     total_jum = 0
-
     col_dx_name = df_belum_ct.columns[0] if not df_belum_ct.empty else 'DIAGNOSIS'
 
     for i, (_, row) in enumerate(df_belum_ct.iterrows()):
@@ -907,10 +898,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide 6: Viral Hepatitis Subdiagnosis Belum Ambil Tindakan ---
     slide_hep = prs.slides.add_slide(prs.slide_layouts[6])
-
     if os.path.exists("logo.png"):
         slide_hep.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-
     line = slide_hep.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
@@ -918,7 +907,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p = txBox.text_frame.paragraphs[0]
     p.text = "Senarai Kes Belum Ambil Tindakan Mengikut Diagnosis"
     p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-    
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"ME {epi_week:02d} / {year}"
     p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
@@ -931,11 +919,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     for j in range(1, 11):
         table.columns[j].width = Inches(1.0)
 
-    h0 = ["DIAGNOSIS"] + [d[1] for d in DISTRICT_ABBR] + ["JUM"]
     for j, txt in enumerate(h0):
         write_cell(table.cell(0, j), txt, bold=True, size=16)
-
-    h1 = [""] + [f"ME{epi_week:02d}"] * 10
     for j, txt in enumerate(h1):
         if j > 0:
             write_cell(table.cell(1, j), txt, bold=True, size=16)
@@ -945,7 +930,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     district_sums = {d: 0 for d in district_names}
     total_jum = 0
-
     col_subdx_name = df_hep_ct.columns[0] if not df_hep_ct.empty else 'DIAGNOSIS'
 
     for i, (_, row) in enumerate(df_hep_ct.iterrows()):
@@ -985,10 +969,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide 7: Bilangan Kes Yang Masih Berstatus Daftar Notifikasi (Inclusion List) ---
     slide_dn = prs.slides.add_slide(prs.slide_layouts[6])
-
     if os.path.exists("logo.png"):
         slide_dn.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-
     line = slide_dn.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
@@ -996,7 +978,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p = txBox.text_frame.paragraphs[0]
     p.text = "Bilangan Kes Yang Masih Berstatus Daftar Notifikasi"
     p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-    
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"Tempoh daftar kes ≤ 7 hari"
     p2.font.size = Pt(14); p2.font.color.rgb = NAVY; p2.font.bold = True
@@ -1009,11 +990,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     for j in range(1, 11):
         table.columns[j].width = Inches(1.0)
 
-    h0 = ["DIAGNOSIS"] + [d[1] for d in DISTRICT_ABBR] + ["JUM"]
     for j, txt in enumerate(h0):
         write_cell(table.cell(0, j), txt, bold=True, size=16)
-
-    h1 = [""] + [f"ME{epi_week:02d}"] * 10
     for j, txt in enumerate(h1):
         if j > 0:
             write_cell(table.cell(1, j), txt, bold=True, size=16)
@@ -1021,10 +999,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     table.cell(0, 0).merge(table.cell(1, 0))
     write_cell(table.cell(0, 0), "DIAGNOSIS", bold=True, size=16)
 
-    district_names = [d[0] for d in DISTRICT_ABBR]
     district_sums = {d: 0 for d in district_names}
     total_jum = 0
-
     col_dn_dx_name = df_dn_ct.columns[0] if not df_dn_ct.empty else 'DIAGNOSIS'
 
     for i, (_, row) in enumerate(df_dn_ct.iterrows()):
@@ -1064,10 +1040,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide 8: Bilangan Kes Yang Masih Berstatus Daftar Notifikasi (Exclusion List) ---
     slide_dn_exc = prs.slides.add_slide(prs.slide_layouts[6])
-
     if os.path.exists("logo.png"):
         slide_dn_exc.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-
     line = slide_dn_exc.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
@@ -1075,7 +1049,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p = txBox.text_frame.paragraphs[0]
     p.text = "Bilangan Kes Yang Masih Berstatus Daftar Notifikasi"
     p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-    
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"Tempoh daftar kes ≤ 14 hari"
     p2.font.size = Pt(14); p2.font.color.rgb = NAVY; p2.font.bold = True
@@ -1088,11 +1061,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     for j in range(1, 11):
         table.columns[j].width = Inches(1.0)
 
-    h0 = ["DIAGNOSIS"] + [d[1] for d in DISTRICT_ABBR] + ["JUM"]
     for j, txt in enumerate(h0):
         write_cell(table.cell(0, j), txt, bold=True, size=16)
-
-    h1 = [""] + [f"ME{epi_week:02d}"] * 10
     for j, txt in enumerate(h1):
         if j > 0:
             write_cell(table.cell(1, j), txt, bold=True, size=16)
@@ -1102,7 +1072,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     district_sums = {d: 0 for d in district_names}
     total_jum = 0
-
     col_dn_exc_dx_name = df_dn_exc_ct.columns[0] if not df_dn_exc_ct.empty else 'DIAGNOSIS'
 
     for i, (_, row) in enumerate(df_dn_exc_ct.iterrows()):
@@ -1142,10 +1111,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide 9: Viral Hepatitis Subdiagnosis Daftar Notifikasi ---
     slide_hep_dn = prs.slides.add_slide(prs.slide_layouts[6])
-
     if os.path.exists("logo.png"):
         slide_hep_dn.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-
     line = slide_hep_dn.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
@@ -1153,7 +1120,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p = txBox.text_frame.paragraphs[0]
     p.text = "Bilangan Kes Yang Masih Berstatus Daftar Notifikasi"
     p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-    
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"Tempoh daftar kes ≤ 14 hari"
     p2.font.size = Pt(14); p2.font.color.rgb = NAVY; p2.font.bold = True
@@ -1166,11 +1132,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     for j in range(1, 11):
         table.columns[j].width = Inches(1.0)
 
-    h0 = ["DIAGNOSIS"] + [d[1] for d in DISTRICT_ABBR] + ["JUM"]
     for j, txt in enumerate(h0):
         write_cell(table.cell(0, j), txt, bold=True, size=16)
-
-    h1 = [""] + [f"ME{epi_week:02d}"] * 10
     for j, txt in enumerate(h1):
         if j > 0:
             write_cell(table.cell(1, j), txt, bold=True, size=16)
@@ -1180,7 +1143,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     district_sums = {d: 0 for d in district_names}
     total_jum = 0
-
     col_hep_dn_dx_name = df_hep_dn_ct.columns[0] if not df_hep_dn_ct.empty else 'DIAGNOSIS'
 
     for i, (_, row) in enumerate(df_hep_dn_ct.iterrows()):
@@ -1220,10 +1182,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide 10: Lewat Notifikasi 24 Jam ---
     slide_l24 = prs.slides.add_slide(prs.slide_layouts[6])
-
     if os.path.exists("logo.png"):
         slide_l24.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-
     line = slide_l24.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
@@ -1231,7 +1191,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p = txBox.text_frame.paragraphs[0]
     p.text = "Lewat Notifikasi 24 Jam"
     p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
-    
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"ME {epi_week:02d} / {year}"
     p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
@@ -1268,7 +1227,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         swasta_lewat_24 += r_sw
         write_cell(table.cell(r_idx, 10), format_cell_stat(r_tot, r_sw, zero_as_dash=True), bold=True, size=12)
 
-    # JUMLAH Row
     r_idx = rows - 1
     write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=12)
     for j, d in enumerate(VALID_DISTRICTS):
@@ -1300,10 +1258,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide 11: Lewat Notifikasi 7 Hari ---
     slide_l7 = prs.slides.add_slide(prs.slide_layouts[6])
-
     if os.path.exists("logo.png"):
         slide_l7.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-
     line = slide_l7.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
     line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
@@ -1311,7 +1267,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p = txBox.text_frame.paragraphs[0]
     p.text = "Lewat Notifikasi 7 Hari"
     p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
-    
     p2 = txBox.text_frame.add_paragraph()
     p2.text = f"ME {epi_week:02d} / {year}"
     p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
@@ -1347,7 +1302,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         swasta_lewat_7 += r_sw
         write_cell(table.cell(r_idx, 10), format_cell_stat(r_tot, r_sw, zero_as_dash=True), bold=True, size=12)
 
-    # JUMLAH Row
     r_idx = rows - 1
     write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=12)
     for j, d in enumerate(VALID_DISTRICTS):
@@ -1380,21 +1334,23 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     # --- Slide 12+: Bilangan Keseluruhan Episod Wabak / Kluster Mengikut Daerah ---
     if not df_wabak.empty:
         chunk_size = 10
-        total_rows = len(df_wabak)
-        chunks = [df_wabak.iloc[i:i + chunk_size] for i in range(0, total_rows, chunk_size)]
+        total_rows_w = len(df_wabak)
+        num_pages = (total_rows_w + chunk_size - 1) // chunk_size
         
-        district_codes = ["GBK", "HL", "HS", "KLG", "KL", "KS", "PTG", "SB", "SPG"]
-        
-        for page_idx, chunk in enumerate(chunks):
+        for page_idx in range(num_pages):
+            start_i = page_idx * chunk_size
+            end_i = min(start_i + chunk_size, total_rows_w)
+            chunk = df_wabak.iloc[start_i:end_i]
+            
             slide_w = prs.slides.add_slide(prs.slide_layouts[6])
-
+            
             if os.path.exists("logo.png"):
                 slide_w.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
 
             line = slide_w.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
             line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
 
-            txBox = slide_w.shapes.add_textbox(Inches(2.4), Inches(0.32), Inches(10.5), Inches(0.9))
+            txBox = slide_w.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(10.0), Inches(0.9))
             p = txBox.text_frame.paragraphs[0]
             p.text = "Bilangan Keseluruhan Episod Wabak / Kluster Mengikut Daerah"
             p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
@@ -1403,64 +1359,75 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             p2.text = f"Sehingga ME {epi_week:02d} / {year}"
             p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
 
-            t_rows = len(chunk) + 2  # 2 Header rows + data rows
-            t_cols = 12
-            table_shape = slide_w.shapes.add_table(t_rows, t_cols, Inches(0.4), Inches(1.4), Inches(12.533), Inches(5.1))
+            rows = len(chunk) + 2
+            cols = 12
+            table_shape = slide_w.shapes.add_table(rows, cols, Inches(0.4), Inches(1.5), Inches(12.533), Inches(5.0))
             table = table_shape.table
-
-            # Column dimensions
-            table.columns[0].width = Inches(0.75)   # Bil
-            table.columns[1].width = Inches(2.45)   # Wabak
-            for d_idx in range(2, 11):
-                table.columns[d_idx].width = Inches(0.92)  # 9 Districts
-            table.columns[11].width = Inches(1.15)  # Kumulatif
-
-            # Row 0
-            write_cell(table.cell(0, 0), "Bil", bold=True, size=11)
-            write_cell(table.cell(0, 1), "Wabak", bold=True, size=11)
-            write_cell(table.cell(0, 2), f"Pecahan kumulatif mengikut daerah (ME {epi_week:02d} / {year})", bold=True, size=11)
-            write_cell(table.cell(0, 11), f"Kumulatif\nsehingga ME\n({epi_week:02d} / {year})", bold=True, size=10)
-
-            # Row 1
-            for j, code in enumerate(district_codes):
-                write_cell(table.cell(1, j + 2), code, bold=True, size=11)
-
-            # Merge spans
-            table.cell(0, 0).merge(table.cell(1, 0))
-            table.cell(0, 1).merge(table.cell(1, 1))
-            table.cell(0, 11).merge(table.cell(1, 11))
             
-            # Merge columns 2 through 10 across Row 0 for district category
-            cell_start = table.cell(0, 2)
-            cell_end = table.cell(0, 10)
-            cell_start.merge(cell_end)
-            write_cell(cell_start, f"Pecahan kumulatif mengikut daerah (ME {epi_week:02d} / {year})", bold=True, size=11)
+            table.columns[0].width = Inches(0.7)
+            table.columns[1].width = Inches(2.4)
+            for c in range(2, 11):
+                table.columns[c].width = Inches(0.9)
+            table.columns[11].width = Inches(1.333)
 
-            # Populate data rows
+            for c_i in range(3, 11):
+                table.cell(0, 2).merge(table.cell(0, c_i))
+
+            table.cell(0, 0).merge(table.cell(1, 0))
+            write_wabak_cell(table.cell(0, 0), "Bil", bold=True, size=13)
+
+            table.cell(0, 1).merge(table.cell(1, 1))
+            write_wabak_cell(table.cell(0, 1), "Wabak", bold=True, size=13)
+
+            write_header_with_red_me(
+                table.cell(0, 2),
+                "Pecahan kumulatif mengikut daerah",
+                f"(ME {epi_week:02d} / {year})",
+                size=13,
+                newline=False
+            )
+
+            table.cell(0, 11).merge(table.cell(1, 11))
+            write_header_with_red_me(
+                table.cell(0, 11),
+                "Kumulatif sehingga ME",
+                f"({epi_week:02d} / {year})",
+                size=13,
+                newline=True
+            )
+
+            dist_abbrs = ["GBK", "HL", "HS", "KLG", "KL", "KS", "PTG", "SB", "SPG"]
+            for c_i, abbr in enumerate(dist_abbrs):
+                write_wabak_cell(table.cell(1, c_i + 2), abbr, bold=True, size=13)
+
             for r_i, (_, r_data) in enumerate(chunk.iterrows()):
                 curr_row = r_i + 2
                 row_num = page_idx * chunk_size + (r_i + 1)
+                wabak_name = str(r_data.iloc[1]).strip()
+                is_jumlah = wabak_name.upper() == 'JUMLAH'
                 
-                # Bil
-                write_wabak_cell(table.cell(curr_row, 0), str(row_num), bold=True, size=11)
-                # Wabak / Diagnosis name
-                write_wabak_cell(table.cell(curr_row, 1), str(r_data.iloc[1]), bold=True, align_left=True, size=11)
+                bil_val = "" if is_jumlah else str(row_num)
+                write_wabak_cell(table.cell(curr_row, 0), bil_val, bold=True, size=13)
+                write_wabak_cell(table.cell(curr_row, 1), wabak_name, bold=True, align_left=True, size=13)
                 
-                # 9 District columns (iloc 2 to 10)
                 for c_i in range(9):
                     val = r_data.iloc[c_i + 2] if (c_i + 2) < len(r_data) else "-"
-                    write_wabak_cell(table.cell(curr_row, c_i + 2), val, bold=True, size=11)
+                    write_wabak_cell(table.cell(curr_row, c_i + 2), val, bold=True, size=13)
                     
-                # Kumulatif column (iloc 11)
                 val_kum = r_data.iloc[11] if 11 < len(r_data) else "-"
-                write_wabak_cell(table.cell(curr_row, 11), val_kum, bold=True, size=11)
+                write_wabak_cell(table.cell(curr_row, 11), val_kum, bold=True, size=13)
 
-            # Set styling: Light grey headers and clean borders
             for i, row in enumerate(table.rows):
+                is_jumlah_row = False
+                if i >= 2:
+                    row_label = row.cells[1].text_frame.text.strip().upper()
+                    if row_label == 'JUMLAH':
+                        is_jumlah_row = True
+
                 for j, cell in enumerate(row.cells):
                     set_cell_border(cell, NAVY)
                     cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-                    if i in [0, 1]:
+                    if i in [0, 1] or j in [0, 1] or is_jumlah_row:
                         cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
                     else:
                         cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
@@ -1478,68 +1445,48 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     return buffer
 
 # ---------------------------------------------------------
-# Excel Generator for Lewat Notifikasi (Raw Records - 2 Sheets)
-# ---------------------------------------------------------
-@st.cache_data
-def generate_lewat_excel(df_24h_raw, df_7d_raw):
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df_24h_raw.to_excel(writer, sheet_name="Lewat 24 Jam", index=False)
-        df_7d_raw.to_excel(writer, sheet_name="Lewat 7 Hari", index=False)
-    buffer.seek(0)
-    return buffer
-
-# ---------------------------------------------------------
 # UI Runner
 # ---------------------------------------------------------
-st.title("📊 Selangor Epi Review Slide Generator")
-st.write(f"Target Output: **ME {epi_week:02d} / {year}** (Malaysia Time UTC+8)")
-
 st.divider()
 st.subheader("1. Upload Data")
-uploaded_file = st.file_uploader("Upload raw Excel data for Analisa e-Notifikasi", type=["xlsx", "xls"])
+uploaded_file = st.file_uploader("Upload raw Excel data", type=["xlsx", "xls"])
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
         (
             total_rows, stats_semasa, stats_kumulatif, df_penyakit, 
             df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, 
-            df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_24h_raw, df_7d_raw
+            df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_24h_raw, df_7d_raw,
+            df_wabak
         ) = load_and_process_data(
             uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14
         )
         
-        df_wabak = fetch_wabak_data()
-
         pptx_buffer = generate_pptx(
             stats_semasa, stats_kumulatif, df_penyakit, df_district, 
             df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, 
             lewat_24h_df, lewat_7d_df, df_wabak, epi_week, year
         )
         
-        excel_buffer = generate_lewat_excel(df_24h_raw, df_7d_raw)
+        st.success(f"Successfully processed {total_rows:,} records. Slide deck is ready!")
 
-        st.success(f"Successfully processed {total_rows:,} records. Outputs are ready!")
-
-        filename_pptx = f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx"
-        filename_excel = f"Senarai_Lewat_Notifikasi_ME{epi_week:02d}_{year}.xlsx"
-
-        col1, col2 = st.columns(2)
-        with col1:
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
             st.download_button(
                 label="📥 Download Presentation (.pptx)",
                 data=pptx_buffer,
-                file_name=filename_pptx,
+                file_name=f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx",
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 use_container_width=True
             )
-        with col2:
+        with col_d2:
+            excel_buffer = generate_lewat_excel(df_24h_raw, df_7d_raw)
             st.download_button(
-                label="📊 Download Raw Lewat Data (.xlsx)",
+                label="📥 Download Raw Data Lewat (.xlsx)",
                 data=excel_buffer,
-                file_name=filename_excel,
+                file_name=f"Senarai_Lewat_Notifikasi_ME{epi_week:02d}_{year}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
 else:
-    st.info("⚠️ Please upload the Excel file. The presentation and report files will automatically generate once uploaded.")
+    st.info("⚠️ Please upload the Excel file. The presentation will automatically generate once uploaded.")
