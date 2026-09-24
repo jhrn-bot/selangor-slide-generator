@@ -710,7 +710,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                     cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i in [0, 1] or j == 0 or ij else RGBColor(255,255,255)
             add_bottom_banner(sl)
 
-    # --- Slide X: Tren Wabak Native Chart ---
+    # Common Trend Chart Data Truncation Logic
+    df_graf_clean = pd.DataFrame()
     if not df_graf.empty and 'Minggu Epid' in df_graf.columns:
         has_reset = False
         keep_indices = []
@@ -730,6 +731,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 
         df_graf_clean = df_graf.loc[keep_indices].reset_index(drop=True)
 
+    # --- Slide X: Tren Wabak Native Chart (All Diseases) ---
+    if not df_graf_clean.empty:
         sl = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
@@ -753,7 +756,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             chart_data
         ).chart
         
-        # Legend styling - Right Placement & 8.5 pt Bold Font
         chart.has_legend = True
         chart.legend.position = XL_LEGEND_POSITION.RIGHT
         chart.legend.include_in_layout = False
@@ -761,7 +763,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         chart.legend.font.name = 'Calibri'
         chart.legend.font.bold = True
         
-        # Axis font styling (10 pt Bold) & disable gridlines
         val_axis = chart.value_axis
         val_axis.has_major_gridlines = False
         val_axis.has_minor_gridlines = False
@@ -774,13 +775,11 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         cat_axis.tick_labels.font.name = 'Calibri'
         cat_axis.tick_labels.font.bold = True
         
-        # Thicken bars (gap_width = 20)
         try:
             chart.plots[0].gap_width = 20
         except:
             pass
         
-        # Series Color Mapping
         for series in chart.series:
             sn = series.name.strip()
             color = DISEASE_COLORS.get(sn, None)
@@ -793,7 +792,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 series.format.fill.solid()
                 series.format.fill.fore_color.rgb = color
 
-        # Dashed Year Reset Line
         idx_reset = -1
         for i in range(1, len(categories)):
             try:
@@ -814,6 +812,92 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             line.line.dash_style = 7
             
         add_bottom_banner(sl)
+
+    # --- Slide X+1: Tren Wabak Native Chart (Tanpa Wabak Vektor) ---
+    if not df_graf_clean.empty:
+        sl_nv = prs.slides.add_slide(prs.slide_layouts[6])
+        add_slide_header(sl_nv, "Tren Wabak Mengikut Jenis Penyakit Berjangkit (Tanpa Wabak Vektor)", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
+        
+        categories = [str(x) for x in df_graf_clean['Minggu Epid'].tolist()]
+        
+        # Exclude Denggi, Malaria, Chikungunya (Vector diseases)
+        vector_diseases_lower = ['denggi', 'malaria', 'chikungunya']
+        series_cols_non_vector = [
+            c for c in df_graf_clean.columns 
+            if c != 'Minggu Epid' 
+            and str(c).lower().strip() not in ['nan', 'none', '', 'null'] 
+            and not str(c).startswith('Unnamed')
+            and str(c).lower().strip() not in vector_diseases_lower
+        ]
+        
+        chart_data_nv = CategoryChartData()
+        chart_data_nv.categories = categories
+        for sn in series_cols_non_vector:
+            series_vals = pd.to_numeric(df_graf_clean[sn], errors='coerce').fillna(0).tolist()
+            chart_data_nv.add_series(str(sn), series_vals)
+            
+        chart_nv = sl_nv.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_STACKED_100, 
+            Inches(0.4), Inches(1.5), Inches(9.2), Inches(5.1), 
+            chart_data_nv
+        ).chart
+        
+        chart_nv.has_legend = True
+        chart_nv.legend.position = XL_LEGEND_POSITION.RIGHT
+        chart_nv.legend.include_in_layout = False
+        chart_nv.legend.font.size = Pt(8.5)
+        chart_nv.legend.font.name = 'Calibri'
+        chart_nv.legend.font.bold = True
+        
+        val_axis_nv = chart_nv.value_axis
+        val_axis_nv.has_major_gridlines = False
+        val_axis_nv.has_minor_gridlines = False
+        val_axis_nv.tick_labels.font.size = Pt(10)
+        val_axis_nv.tick_labels.font.name = 'Calibri'
+        val_axis_nv.tick_labels.font.bold = True
+        
+        cat_axis_nv = chart_nv.category_axis
+        cat_axis_nv.tick_labels.font.size = Pt(10)
+        cat_axis_nv.tick_labels.font.name = 'Calibri'
+        cat_axis_nv.tick_labels.font.bold = True
+        
+        try:
+            chart_nv.plots[0].gap_width = 20
+        except:
+            pass
+        
+        for series in chart_nv.series:
+            sn = series.name.strip()
+            color = DISEASE_COLORS.get(sn, None)
+            if not color:
+                for key, c in DISEASE_COLORS.items():
+                    if key.lower() in sn.lower() or sn.lower() in key.lower():
+                        color = c
+                        break
+            if color:
+                series.format.fill.solid()
+                series.format.fill.fore_color.rgb = color
+
+        idx_reset = -1
+        for i in range(1, len(categories)):
+            try:
+                c_curr = int(categories[i])
+                c_prev = int(categories[i-1])
+                if c_curr < c_prev and c_prev >= 40:
+                    idx_reset = i
+                    break
+            except ValueError:
+                pass
+        
+        if idx_reset != -1:
+            plot_width = 9.2
+            x_pos = 0.4 + (plot_width / len(categories)) * idx_reset
+            line_nv = sl_nv.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(1.5), Inches(x_pos), Inches(6.5))
+            line_nv.line.color.rgb = RGBColor(0, 0, 0)
+            line_nv.line.width = Pt(4)
+            line_nv.line.dash_style = 7
+            
+        add_bottom_banner(sl_nv)
 
     buffer = io.BytesIO(); prs.save(buffer); buffer.seek(0)
     return buffer
