@@ -265,9 +265,9 @@ def fetch_bencana_data():
             return df_ah_au[df_ah_au.iloc[:, 0].astype(str).str.strip() != '']
     except: return pd.DataFrame()
 
-@st.cache_data(ttl=600)
 def fetch_graf_data():
-    url = f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=A2:AD120"
+    # Strictly query starting from Column B (B2:AD120) to completely bypass Column A ('tahun')
+    url = f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=B2:AD120"
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as resp:
@@ -276,31 +276,22 @@ def fetch_graf_data():
             if raw_df.empty or len(raw_df) < 2:
                 return pd.DataFrame()
             
-            header_row_idx = 0
-            for idx in range(min(10, len(raw_df))):
-                r_vals = [str(x).strip().upper() for x in raw_df.iloc[idx].tolist()]
-                if any('MINGGU' in v for v in r_vals[:3]):
-                    header_row_idx = idx
-                    break
+            # Row 0 contains Row 2 of sheet ('Minggu Epid', 'Denggi', 'Malaria', etc.)
+            raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
             
-            raw_headers = [str(x).strip() for x in raw_df.iloc[header_row_idx].tolist()]
+            # Data starts at Row 1
+            data_df = raw_df.iloc[1:].copy()
             
-            epid_col_idx = 1
-            for idx, h in enumerate(raw_headers):
-                if 'MINGGU' in h.upper() or 'EPID' in h.upper():
-                    epid_col_idx = idx
-                    break
+            # Column 0 is 'Minggu Epid' (Epi Weeks: 39, 40, ..., 52, 1, 2, ... 37)
+            data_df[0] = pd.to_numeric(data_df[0], errors='coerce')
+            data_df = data_df.dropna(subset=[0])
+            data_df[0] = data_df[0].astype(int).astype(str)
             
-            data_df = raw_df.iloc[header_row_idx + 1:].copy()
+            clean_dict = {'Minggu Epid': data_df[0].tolist()}
             
-            data_df[epid_col_idx] = pd.to_numeric(data_df[epid_col_idx], errors='coerce')
-            data_df = data_df.dropna(subset=[epid_col_idx])
-            data_df[epid_col_idx] = data_df[epid_col_idx].astype(int).astype(str)
-            
-            clean_dict = {'Minggu Epid': data_df[epid_col_idx].tolist()}
-            
-            for col_i in range(epid_col_idx + 1, min(len(raw_headers), 30)):
-                raw_name = raw_headers[col_i] if col_i < len(raw_headers) else f"Series_{col_i}"
+            # Columns 1 onwards are disease series
+            for col_i in range(1, len(raw_headers)):
+                raw_name = raw_headers[col_i]
                 
                 clean_name = raw_name
                 raw_name_low = str(raw_name).lower().strip()
@@ -419,7 +410,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     df_24h_raw = df_lewat[df_lewat[c_dx].isin(DIAG_TEMPOH_24H) & (df_lewat['DIFF_DAYS'] > 2)]
     df_7d_raw = df_lewat[df_lewat[c_dx].isin(DIAG_TEMPOH_7D) & (df_lewat['DIFF_DAYS'] > 7)]
 
-    return (len(df), stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, agg_lewat(df_24h_raw), agg_lewat(df_7d_raw), df_24h_raw, df_7d_raw, fetch_wabak_data(), fetch_bencana_data(), fetch_graf_data())
+    return (len(df), stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, agg_lewat(df_24h_raw), agg_lewat(df_7d_raw), df_24h_raw, df_7d_raw, fetch_wabak_data(), fetch_bencana_data())
 
 def generate_lewat_excel(df_24h, df_7d):
     out = io.BytesIO()
@@ -724,13 +715,15 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             add_bottom_banner(sl)
 
     # --- Slide X: Tren Wabak Native Chart ---
-    if not df_graf.empty and len(df_graf.columns) > 1:
+    if not df_graf.empty and 'Minggu Epid' in df_graf.columns:
         sl = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
-        x_col = df_graf.columns[0]
-        categories = [str(x) for x in df_graf[x_col].tolist()]
-        series_cols = [c for c in df_graf.columns[1:] if not str(c).startswith('Unnamed')]
+        # Categories = Minggu Epid (Epi Weeks: 39, 40, ..., 52, 1, 2, ... 37)
+        categories = [str(x) for x in df_graf['Minggu Epid'].tolist()]
+        
+        # Series = All Disease Columns
+        series_cols = [c for c in df_graf.columns if c != 'Minggu Epid' and not str(c).startswith('Unnamed')]
         
         chart_data = CategoryChartData()
         chart_data.categories = categories
@@ -760,6 +753,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 series.format.fill.solid()
                 series.format.fill.fore_color.rgb = color
 
+        # Dashed boundary line at year reset
         idx_reset = -1
         for i in range(1, len(categories)):
             try:
@@ -797,7 +791,11 @@ uploaded_file = st.file_uploader("Upload raw Excel data (Analisa e-Notifikasi)",
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
-        (t_rows, s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, l24_r, l7_r, df_w, df_ben, df_g) = load_and_process_data(uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14)
+        # Fetch fresh chart data independently outside of Excel caching
+        df_g = fetch_graf_data()
+        
+        (t_rows, s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, l24_r, l7_r, df_w, df_ben) = load_and_process_data(uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14)
+        
         pptx_buffer = generate_pptx(s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, df_w, df_ben, df_g, epi_week, year)
         
         st.success(f"Successfully processed {t_rows:,} records. Slide deck is ready!")
