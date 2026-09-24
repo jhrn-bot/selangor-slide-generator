@@ -225,27 +225,42 @@ def fetch_bencana_data():
 
 @st.cache_data(ttl=600)
 def fetch_graf_data():
-    url = f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=A2:AD92"
+    # Fetch range B2:AD directly from GRAF WABAK S2WER sheet without assumptions
+    url = f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=B2:AD"
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as resp:
-            df = pd.read_csv(io.BytesIO(resp.read()))
-            df.columns = [str(c).strip() for c in df.columns]
+            raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
             
-            epid_col = None
-            for col in df.columns:
-                if 'MINGGU' in col.upper() or 'EPID' in col.upper():
-                    epid_col = col
-                    break
-            if not epid_col and len(df.columns) > 1:
-                epid_col = df.columns[1]
-                
-            df = df.dropna(subset=[epid_col])
-            df[epid_col] = pd.to_numeric(df[epid_col], errors='coerce')
-            df = df.dropna(subset=[epid_col])
-            df[epid_col] = df[epid_col].astype(int).astype(str)
+            if raw_df.empty:
+                return pd.DataFrame()
             
-            return df
+            # Row 0 of raw_df corresponds to Row 2 of sheet (contains headers: Minggu Epid, Denggi, Malaria, etc.)
+            headers = [str(val).strip() for val in raw_df.iloc[0].tolist()]
+            
+            # Data rows start from Row 1 onwards
+            data_df = raw_df.iloc[1:].copy()
+            data_df.columns = headers
+            
+            # First column is Minggu Epid
+            x_col = headers[0] if headers else 'Minggu Epid'
+            
+            # Clean Minggu Epid rows
+            data_df = data_df.dropna(subset=[x_col])
+            data_df[x_col] = pd.to_numeric(data_df[x_col], errors='coerce')
+            data_df = data_df.dropna(subset=[x_col])
+            data_df[x_col] = data_df[x_col].astype(int).astype(str)
+            
+            # Ensure all disease column names are valid strings
+            clean_headers = [x_col]
+            for idx, h in enumerate(headers[1:], start=1):
+                if not h or h.upper() in ['NAN', 'NONE'] or 'UNNAMED' in h.upper():
+                    clean_headers.append(f"Penyakit_{idx}")
+                else:
+                    clean_headers.append(h)
+            data_df.columns = clean_headers
+            
+            return data_df.reset_index(drop=True)
     except Exception as e:
         st.warning(f"Note: Could not retrieve chart data: {e}")
         return pd.DataFrame()
@@ -661,24 +676,16 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         sl = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
-        # Column B ('Minggu Epid') is X-Axis categories
-        epid_col = None
-        for col in df_graf.columns:
-            if 'MINGGU' in col.upper() or 'EPID' in col.upper():
-                epid_col = col
-                break
-        if not epid_col and len(df_graf.columns) > 1:
-            epid_col = df_graf.columns[1]
-
-        categories = [str(x) for x in df_graf[epid_col].tolist()]
+        # Column 0 in clean df_graf is 'Minggu Epid' (Col B)
+        x_col = df_graf.columns[0]
+        categories = [str(x) for x in df_graf[x_col].tolist()]
         
-        # Columns C..AD (indices 2 onwards) are disease series
-        epid_idx = list(df_graf.columns).index(epid_col)
-        series_cols = [c for c in df_graf.columns[epid_idx + 1:] if not str(c).startswith('Unnamed')]
+        # Columns 1 onwards are disease series
+        disease_cols = [c for c in df_graf.columns[1:] if not str(c).startswith('Unnamed')]
         
         chart_data = CategoryChartData()
         chart_data.categories = categories
-        for sn in series_cols:
+        for sn in disease_cols:
             series_vals = pd.to_numeric(df_graf[sn], errors='coerce').fillna(0).tolist()
             chart_data.add_series(str(sn), series_vals)
             
