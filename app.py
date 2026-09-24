@@ -73,14 +73,13 @@ DIAG_TEMPOH_7D = [
 NAVY = RGBColor(27, 54, 93)
 LIGHT_GREY = RGBColor(211, 211, 211)
 
-# Exact RGB Color Mapping derived from your reference legend
 DISEASE_COLORS = {
     'Denggi': RGBColor(255, 0, 0),                           # Red
     'Malaria': RGBColor(237, 125, 49),                       # Orange
     'Chikungunya': RGBColor(146, 208, 80),                   # Light Green
-    'HFMD': RGBColor(169, 209, 142),                         # Sage / Soft Lime
+    'HFMD': RGBColor(169, 209, 142),                         # Soft Lime
     'Keracunan Makanan': RGBColor(68, 114, 196),             # Cobalt Blue
-    'Influenza / ILI': RGBColor(96, 40, 130),                # Dark Indigo / Purple
+    'Influenza / ILI': RGBColor(96, 40, 130),                # Dark Indigo
     'Chickenpox': RGBColor(0, 32, 96),                       # Dark Navy Blue
     'COVID-19': RGBColor(255, 0, 0),                         # Bright Red
     'Tuberkulosis': RGBColor(112, 48, 160),                  # Purple
@@ -226,20 +225,48 @@ def fetch_bencana_data():
 
 @st.cache_data(ttl=600)
 def fetch_graf_data():
-    req = urllib.request.Request(
-        f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=B2:AD",
-        headers={'User-Agent': 'Mozilla/5.0'}
-    )
+    url = f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as resp:
-            df = pd.read_csv(io.BytesIO(resp.read()))
-            df.columns = [str(c).strip() for c in df.columns]
+            df_raw = pd.read_csv(io.BytesIO(resp.read()), header=None)
             
-            first_col = df.columns[0]
-            df = df.dropna(subset=[first_col])
-            df[first_col] = pd.to_numeric(df[first_col], errors='coerce')
-            df = df.dropna(subset=[first_col])
-            return df
+            # Locate the header row (contains 'Minggu Epid')
+            header_idx = 1
+            for idx in range(min(5, len(df_raw))):
+                row_str = [str(x).strip().upper() for x in df_raw.iloc[idx].tolist()]
+                if any('MINGGU EPID' in s or 'MINGGU' in s for s in row_str):
+                    header_idx = idx
+                    break
+
+            headers = [str(x).strip() for x in df_raw.iloc[header_idx].tolist()]
+            df_data = df_raw.iloc[header_idx + 1:].copy()
+            df_data.columns = headers
+
+            # Col B (index 1) = 'Minggu Epid'
+            # Cols C..AD (indices 2 to 29) = Diseases
+            df_sliced = df_data.iloc[:, 1:30].copy()
+
+            # Clean column names
+            clean_cols = []
+            for idx, c in enumerate(df_sliced.columns):
+                c_str = str(c).strip()
+                if idx == 0:
+                    clean_cols.append('Minggu Epid')
+                elif c_str == '' or 'UNNAMED' in c_str.upper() or c_str.lower() == 'nan':
+                    clean_cols.append(f"Disease_{idx}")
+                else:
+                    clean_cols.append(c_str)
+            df_sliced.columns = clean_cols
+
+            # Clean rows based on Minggu Epid numeric values
+            epid_col = df_sliced.columns[0]
+            df_sliced = df_sliced.dropna(subset=[epid_col])
+            df_sliced[epid_col] = pd.to_numeric(df_sliced[epid_col], errors='coerce')
+            df_sliced = df_sliced.dropna(subset=[epid_col])
+            df_sliced[epid_col] = df_sliced[epid_col].astype(int).astype(str)
+
+            return df_sliced
     except Exception as e:
         st.warning(f"Note: Could not retrieve chart data: {e}")
         return pd.DataFrame()
@@ -655,34 +682,47 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         sl = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
-        categories = [str(int(float(x))) for x in df_graf.iloc[:, 0].tolist()]
+        # Column 0 is Col B ('Minggu Epid')
+        categories = [str(x) for x in df_graf.iloc[:, 0].tolist()]
+        
+        # Columns 1..N are Col C..AD (Disease Names)
         series_names = df_graf.columns[1:].tolist()
         
         chart_data = CategoryChartData()
         chart_data.categories = categories
         for sn in series_names:
-            chart_data.add_series(sn, pd.to_numeric(df_graf[sn], errors='coerce').fillna(0).tolist())
+            series_vals = pd.to_numeric(df_graf[sn], errors='coerce').fillna(0).tolist()
+            chart_data.add_series(sn, series_vals)
             
-        chart = sl.shapes.add_chart(XL_CHART_TYPE.COLUMN_STACKED_100, Inches(0.4), Inches(1.5), Inches(10), Inches(5.0), chart_data).chart
+        chart = sl.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_STACKED_100, 
+            Inches(0.4), Inches(1.5), Inches(10), Inches(5.0), 
+            chart_data
+        ).chart
+        
         chart.has_legend = True
         chart.legend.position = XL_LEGEND_POSITION.RIGHT
         chart.legend.font.size = Pt(10)
         
         for series in chart.series:
-            sn = series.name.strip()
+            sn = series.name.strip().lower()
             color = None
             for key, c in DISEASE_COLORS.items():
-                if key.lower() in sn.lower() or sn.lower() in key.lower():
+                k_low = key.lower()
+                if k_low in sn or sn in k_low or any(w in sn for w in k_low.split() if len(w) > 3):
                     color = c
                     break
             if color:
                 series.format.fill.solid()
                 series.format.fill.fore_color.rgb = color
 
+        # Dashed line at year reset (where Epi Week drops from 52/53 back to 1)
         idx_reset = -1
         for i in range(1, len(categories)):
             try:
-                if int(categories[i]) < int(categories[i-1]) and int(categories[i-1]) >= 45:
+                c_curr = int(categories[i])
+                c_prev = int(categories[i-1])
+                if c_curr < c_prev and c_prev >= 40:
                     idx_reset = i
                     break
             except ValueError:
