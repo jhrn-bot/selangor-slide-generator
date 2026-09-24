@@ -289,7 +289,6 @@ def fetch_graf_data():
                 clean_name = raw_name
                 raw_name_low = str(raw_name).lower().strip()
                 
-                # Exclude nan / empty header columns
                 if raw_name_low in ['nan', 'none', '', 'null'] or 'unnamed' in raw_name_low:
                     continue
                     
@@ -713,7 +712,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide X: Tren Wabak Native Chart ---
     if not df_graf.empty and 'Minggu Epid' in df_graf.columns:
-        # Truncate at target epi_week for Year 2 (stopping chart at Epi Week 37)
         has_reset = False
         keep_indices = []
         for idx, row in df_graf.iterrows():
@@ -755,22 +753,26 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             chart_data
         ).chart
         
-        # Legend styling - Explicit Right Placement & 8.5 pt Font
+        # Legend styling - Right Placement & 8.5 pt Bold Font
         chart.has_legend = True
         chart.legend.position = XL_LEGEND_POSITION.RIGHT
+        chart.legend.include_in_layout = False
         chart.legend.font.size = Pt(8.5)
         chart.legend.font.name = 'Calibri'
+        chart.legend.font.bold = True
         
-        # Axis font styling (10 pt) & disable gridlines
+        # Axis font styling (10 pt Bold) & disable gridlines
         val_axis = chart.value_axis
         val_axis.has_major_gridlines = False
         val_axis.has_minor_gridlines = False
         val_axis.tick_labels.font.size = Pt(10)
         val_axis.tick_labels.font.name = 'Calibri'
+        val_axis.tick_labels.font.bold = True
         
         cat_axis = chart.category_axis
         cat_axis.tick_labels.font.size = Pt(10)
         cat_axis.tick_labels.font.name = 'Calibri'
+        cat_axis.tick_labels.font.bold = True
         
         # Thicken bars (gap_width = 20)
         try:
