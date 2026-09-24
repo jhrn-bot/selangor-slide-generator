@@ -24,6 +24,7 @@ st.set_page_config(
 
 GOOGLE_SLIDES_ID = "1QFVgrEPqgiDditxLQhHRLapQOqaCjZnt"
 WABAK_SHEET_ID = "1uVcFp4zSF_gIHdq1BedDFNpuQks0E5AxKJnHbXMsYJE"
+BENCANA_SHEET_ID = "1Fp6IORRfdWSJCTC8vqSSoQz6RpCpNXHzO6jj0tHEf2c"
 
 VALID_DISTRICTS = [
     'GOMBAK', 'HULU LANGAT', 'HULU SELANGOR', 'KLANG', 
@@ -166,12 +167,10 @@ def write_wabak_cell(cell, text, bold=True, align_left=False, size=13):
     if val_str.lower() in ["nan", "none", ""]:
         val_str = "-"
         
-    # Replace (Rsv) / (rsv) with capitalized (RSV)
     val_str = re.sub(r'\(rsv\)', '(RSV)', val_str, flags=re.IGNORECASE)
-        
-    # Match only numeric parentheses counts (e.g. "422 (23)"), excluding abbreviations like "(RSV)"
-    match = re.search(r'^(.*?)\s*(\(\d+.*?\))$', val_str)
-    if match and '(' in val_str and ')' in val_str:
+    
+    match = re.search(r'^(.*?)\s*(\(\d+\))$', val_str)
+    if match:
         main_part = match.group(1).strip()
         paren_part = match.group(2).strip()
         
@@ -237,6 +236,27 @@ def fetch_wabak_data():
             return df_p_aa
     except Exception as e:
         st.warning(f"Note: Could not retrieve Wabak sheet automatically: {e}")
+        return pd.DataFrame()
+
+@st.cache_data(ttl=600)
+def fetch_bencana_data():
+    url = f"https://docs.google.com/spreadsheets/d/{BENCANA_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=table%202026"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    try:
+        with urllib.request.urlopen(req) as resp:
+            df_sheet = pd.read_csv(io.BytesIO(resp.read()), header=None)
+            # AH:AU spans 14 columns (0-indexed 33 to 46 inclusive)
+            if df_sheet.shape[1] >= 47:
+                df_ah_au = df_sheet.iloc[1:, 33:47].copy()
+            else:
+                df_ah_au = df_sheet.iloc[1:, 33:].copy()
+            
+            df_ah_au = df_ah_au.dropna(subset=[df_ah_au.columns[0]])
+            df_ah_au = df_ah_au[df_ah_au.iloc[:, 0].astype(str).str.strip() != '']
+            df_ah_au = df_ah_au[~df_ah_au.iloc[:, 0].astype(str).str.upper().str.contains('INSIDEN|BENCANA|PECAHAN|^NAN$')]
+            return df_ah_au
+    except Exception as e:
+        st.warning(f"Note: Could not retrieve Bencana sheet automatically: {e}")
         return pd.DataFrame()
 
 # ---------------------------------------------------------
@@ -495,13 +515,14 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     ].copy()
     lewat_7d_df = aggregate_lewat(df_7d)
 
-    # Fetch wabak Google Sheet data
+    # Fetch wabak and bencana Google Sheet data
     df_wabak = fetch_wabak_data()
+    df_bencana = fetch_bencana_data()
 
     return (
         len(df), stats_semasa, stats_kumulatif, df_penyakit, 
         df_district, ct, hep_ct, dn_ct, dn_exc_ct, hep_dn_ct,
-        lewat_24h_df, lewat_7d_df, df_24h, df_7d, df_wabak
+        lewat_24h_df, lewat_7d_df, df_24h, df_7d, df_wabak, df_bencana
     )
 
 def generate_lewat_excel(df_24h, df_7d):
@@ -516,7 +537,7 @@ def generate_lewat_excel(df_24h, df_7d):
 # PPTX Generator
 # ---------------------------------------------------------
 @st.cache_data
-def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_wabak, epi_week, year):
+def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_wabak, df_bencana, epi_week, year):
     try:
         remote_buffer = fetch_google_slides_pptx(GOOGLE_SLIDES_ID)
         prs = Presentation(remote_buffer)
@@ -1374,7 +1395,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 table.columns[c].width = Inches(0.9)
             table.columns[11].width = Inches(1.333)
 
-            # Merge columns 2 to 10 in row 0 for district cumulative breakdown header
             table.cell(0, 2).merge(table.cell(0, 10))
 
             table.cell(0, 0).merge(table.cell(1, 0))
@@ -1443,6 +1463,105 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
             bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
 
+    # --- Slide 13+: Bilangan Insiden/Bencana Mengikut Daerah ---
+    if not df_bencana.empty:
+        chunk_size_b = 8
+        total_rows_b = len(df_bencana)
+        num_pages_b = (total_rows_b + chunk_size_b - 1) // chunk_size_b
+        
+        for page_idx in range(num_pages_b):
+            start_i = page_idx * chunk_size_b
+            end_i = min(start_i + chunk_size_b, total_rows_b)
+            chunk = df_bencana.iloc[start_i:end_i]
+            
+            slide_b = prs.slides.add_slide(prs.slide_layouts[6])
+            
+            if os.path.exists("logo.png"):
+                slide_b.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
+
+            line = slide_b.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
+            line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
+
+            txBox = slide_b.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(10.0), Inches(0.9))
+            p = txBox.text_frame.paragraphs[0]
+            p.text = "Bilangan Insiden/Bencana Mengikut Daerah"
+            p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
+            
+            p2 = txBox.text_frame.add_paragraph()
+            p2.text = f"Sehingga ME {epi_week:02d} / {year}"
+            p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
+
+            rows = len(chunk) + 2
+            cols = 14
+            table_shape = slide_b.shapes.add_table(rows, cols, Inches(0.3), Inches(1.5), Inches(12.733), Inches(5.0))
+            table = table_shape.table
+            
+            table.columns[0].width = Inches(2.0)
+            for c in range(1, 10):
+                table.columns[c].width = Inches(0.83)
+            table.columns[10].width = Inches(0.86)
+            table.columns[11].width = Inches(0.80)
+            table.columns[12].width = Inches(0.77)
+            table.columns[13].width = Inches(0.83)
+
+            table.cell(0, 1).merge(table.cell(0, 11))
+
+            table.cell(0, 0).merge(table.cell(1, 0))
+            write_wabak_cell(table.cell(0, 0), "INSIDEN/BENCANA", bold=True, size=11)
+
+            write_header_with_red_me(
+                table.cell(0, 1),
+                "Pecahan kumulatif mengikut daerah",
+                f"(ME {epi_week:02d} / {year})",
+                size=11,
+                newline=False
+            )
+
+            table.cell(0, 12).merge(table.cell(1, 12))
+            write_wabak_cell(table.cell(0, 12), "JUMLAH", bold=True, size=11)
+
+            table.cell(0, 13).merge(table.cell(1, 13))
+            write_wabak_cell(table.cell(0, 13), "DIISYTIHAR\nOLEH CPRC\nKKM", bold=True, size=10)
+
+            dist_names_bencana = [
+                "GOMBAK", "HULU\nLANGAT", "HULU\nSELANGOR", "KLANG", 
+                "KUALA\nLANGAT", "KUALA\nSELANGOR", "PETALING", "SABAK\nBERNAM", 
+                "SEPANG", "PK P.KLANG", "PK KLIA"
+            ]
+            for c_i, d_name in enumerate(dist_names_bencana):
+                write_wabak_cell(table.cell(1, c_i + 1), d_name, bold=True, size=10)
+
+            for r_i, (_, r_data) in enumerate(chunk.iterrows()):
+                curr_row = r_i + 2
+                inc_name = str(r_data.iloc[0]).strip()
+                write_wabak_cell(table.cell(curr_row, 0), inc_name, bold=True, align_left=True, size=11)
+                
+                for c_i in range(1, 14):
+                    val = r_data.iloc[c_i] if c_i < len(r_data) else "-"
+                    write_wabak_cell(table.cell(curr_row, c_i), val, bold=True, size=11)
+
+            for i, row in enumerate(table.rows):
+                is_jumlah_row = False
+                if i >= 2:
+                    row_label = row.cells[0].text_frame.text.strip().upper()
+                    if row_label == 'JUMLAH':
+                        is_jumlah_row = True
+
+                for j, cell in enumerate(row.cells):
+                    set_cell_border(cell, NAVY)
+                    cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                    if i in [0, 1] or j == 0 or is_jumlah_row:
+                        cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
+                    else:
+                        cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+
+            bottom_banner = slide_b.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
+            bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
+            p = bottom_banner.text_frame.paragraphs[0]
+            p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
+            p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
+            bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+
     buffer = io.BytesIO()
     prs.save(buffer)
     buffer.seek(0)
@@ -1465,7 +1584,7 @@ if uploaded_file:
             total_rows, stats_semasa, stats_kumulatif, df_penyakit, 
             df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, 
             df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_24h_raw, df_7d_raw,
-            df_wabak
+            df_wabak, df_bencana
         ) = load_and_process_data(
             uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14
         )
@@ -1473,7 +1592,7 @@ if uploaded_file:
         pptx_buffer = generate_pptx(
             stats_semasa, stats_kumulatif, df_penyakit, df_district, 
             df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, 
-            lewat_24h_df, lewat_7d_df, df_wabak, epi_week, year
+            lewat_24h_df, lewat_7d_df, df_wabak, df_bencana, epi_week, year
         )
         
         st.success(f"Successfully processed {total_rows:,} records. Slide deck is ready!")
