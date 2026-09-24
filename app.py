@@ -14,7 +14,7 @@ from pptx.oxml.xmlchemy import OxmlElement
 from pptx.oxml.ns import qn
 
 # ---------------------------------------------------------
-# Page Configuration & Constants
+# Page Configuration
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Selangor Epi Review Slide Generator",
@@ -22,6 +22,9 @@ st.set_page_config(
     layout="centered"
 )
 
+# ---------------------------------------------------------
+# Constants & Configuration
+# ---------------------------------------------------------
 GOOGLE_SLIDES_ID = "1QFVgrEPqgiDditxLQhHRLapQOqaCjZnt"
 WABAK_SHEET_ID = "1uVcFp4zSF_gIHdq1BedDFNpuQks0E5AxKJnHbXMsYJE"
 
@@ -1445,11 +1448,15 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     return buffer
 
 # ---------------------------------------------------------
-# UI Runner
+# Streamlit UI Runner
 # ---------------------------------------------------------
+st.title("📊 Selangor Epi Review Slide Generator")
+st.markdown(f"**Target Output:** `ME {epi_week:02d} / {year}` *(Waktu Malaysia UTC+8)*")
+st.caption("Jabatan Kesihatan Negeri Selangor — Unit Survelan & Kesiapsiagaan")
+
 st.divider()
 st.subheader("1. Upload Data")
-uploaded_file = st.file_uploader("Upload raw Excel data", type=["xlsx", "xls"])
+uploaded_file = st.file_uploader("Upload raw Excel data (Analisa e-Notifikasi)", type=["xlsx", "xls"])
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
