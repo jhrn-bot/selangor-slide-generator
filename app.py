@@ -1507,21 +1507,21 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             table.cell(0, 1).merge(table.cell(0, 11))
 
             table.cell(0, 0).merge(table.cell(1, 0))
-            write_wabak_cell(table.cell(0, 0), "INSIDEN/BENCANA", bold=True, size=11)
+            write_wabak_cell(table.cell(0, 0), "INSIDEN/BENCANA", bold=True, size=13)
 
             write_header_with_red_me(
                 table.cell(0, 1),
                 "Pecahan kumulatif mengikut daerah",
                 f"(ME {epi_week:02d} / {year})",
-                size=11,
+                size=13,
                 newline=False
             )
 
             table.cell(0, 12).merge(table.cell(1, 12))
-            write_wabak_cell(table.cell(0, 12), "JUMLAH", bold=True, size=11)
+            write_wabak_cell(table.cell(0, 12), "JUMLAH", bold=True, size=13)
 
             table.cell(0, 13).merge(table.cell(1, 13))
-            write_wabak_cell(table.cell(0, 13), "DIISYTIHAR\nOLEH CPRC\nKKM", bold=True, size=10)
+            write_wabak_cell(table.cell(0, 13), "DIISYTIHAR\nOLEH CPRC\nKKM", bold=True, size=13)
 
             dist_names_bencana = [
                 "GOMBAK", "HULU\nLANGAT", "HULU\nSELANGOR", "KLANG", 
@@ -1529,16 +1529,16 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 "SEPANG", "PK P.KLANG", "PK KLIA"
             ]
             for c_i, d_name in enumerate(dist_names_bencana):
-                write_wabak_cell(table.cell(1, c_i + 1), d_name, bold=True, size=10)
+                write_wabak_cell(table.cell(1, c_i + 1), d_name, bold=True, size=13)
 
             for r_i, (_, r_data) in enumerate(chunk.iterrows()):
                 curr_row = r_i + 2
                 inc_name = str(r_data.iloc[0]).strip()
-                write_wabak_cell(table.cell(curr_row, 0), inc_name, bold=True, align_left=True, size=11)
+                write_wabak_cell(table.cell(curr_row, 0), inc_name, bold=True, align_left=True, size=13)
                 
                 for c_i in range(1, 14):
                     val = r_data.iloc[c_i] if c_i < len(r_data) else "-"
-                    write_wabak_cell(table.cell(curr_row, c_i), val, bold=True, size=11)
+                    write_wabak_cell(table.cell(curr_row, c_i), val, bold=True, size=13)
 
             for i, row in enumerate(table.rows):
                 is_jumlah_row = False
