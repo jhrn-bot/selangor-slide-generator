@@ -1328,6 +1328,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 # UI Runner
 # ---------------------------------------------------------
 st.divider()
+st.subheader("1. Upload Data")
+uploaded_file = st.file_uploader("Upload raw Excel data", type=["xlsx", "xls"])
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
