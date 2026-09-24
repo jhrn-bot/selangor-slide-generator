@@ -101,6 +101,48 @@ DISEASE_COLORS = {
     'Konjunktivitis': RGBColor(157, 195, 230)                # Light Blue
 }
 
+HEADER_CLEAN_MAP = {
+    'denggi': 'Denggi',
+    'malaria': 'Malaria',
+    'hikungun': 'Chikungunya',
+    'chikungun': 'Chikungunya',
+    'hfmd': 'HFMD',
+    'unan mai': 'Keracunan Makanan',
+    'keracunan': 'Keracunan Makanan',
+    'luenza': 'Influenza / ILI',
+    'influenza': 'Influenza / ILI',
+    'hickenpo': 'Chickenpox',
+    'chickenpox': 'Chickenpox',
+    'covid': 'COVID-19',
+    'berkulos': 'Tuberkulosis',
+    'tuberkulosis': 'Tuberkulosis',
+    'measles': 'Measles',
+    'rotavirus': 'Rotavirus',
+    'orovirus': 'Norovirus',
+    'norovirus': 'Norovirus',
+    'aki noro': 'Disyaki Norovirus',
+    'disyaki noro': 'Disyaki Norovirus',
+    'age': 'AGE',
+    'syncytia': 'Respiratory Syncytial Virus (RSV)',
+    'rsv': 'Respiratory Syncytial Virus (RSV)',
+    'pertussis': 'Pertussis',
+    'scabies': 'Scabies',
+    'epatitis': 'Hepatitis A',
+    'hepatitis': 'Hepatitis A',
+    'denoviru': 'Adenovirus',
+    'adenovirus': 'Adenovirus',
+    'difteria': 'Difteria',
+    'diphtheria': 'Difteria',
+    'ptospiro': 'Leptospirosis',
+    'leptospirosis': 'Leptospirosis',
+    'disentri': 'Disentri',
+    'aki rota': 'Disyaki Rotavirus',
+    'disyaki rota': 'Disyaki Rotavirus',
+    'mpox': 'Mpox',
+    'junktivitis': 'Konjunktivitis',
+    'konjunktivitis': 'Konjunktivitis'
+}
+
 # ---------------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------------
@@ -225,42 +267,52 @@ def fetch_bencana_data():
 
 @st.cache_data(ttl=600)
 def fetch_graf_data():
-    # Fetch range B2:AD directly from GRAF WABAK S2WER sheet without assumptions
-    url = f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=B2:AD"
+    url = f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=A2:AD120"
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as resp:
             raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
             
-            if raw_df.empty:
+            if raw_df.empty or len(raw_df) < 2:
                 return pd.DataFrame()
             
-            # Row 0 of raw_df corresponds to Row 2 of sheet (contains headers: Minggu Epid, Denggi, Malaria, etc.)
-            headers = [str(val).strip() for val in raw_df.iloc[0].tolist()]
+            header_row_idx = 0
+            for idx in range(min(10, len(raw_df))):
+                r_vals = [str(x).strip().upper() for x in raw_df.iloc[idx].tolist()]
+                if any('MINGGU' in v for v in r_vals[:3]):
+                    header_row_idx = idx
+                    break
             
-            # Data rows start from Row 1 onwards
-            data_df = raw_df.iloc[1:].copy()
-            data_df.columns = headers
+            raw_headers = [str(x).strip() for x in raw_df.iloc[header_row_idx].tolist()]
             
-            # First column is Minggu Epid
-            x_col = headers[0] if headers else 'Minggu Epid'
+            epid_col_idx = 1
+            for idx, h in enumerate(raw_headers):
+                if 'MINGGU' in h.upper() or 'EPID' in h.upper():
+                    epid_col_idx = idx
+                    break
             
-            # Clean Minggu Epid rows
-            data_df = data_df.dropna(subset=[x_col])
-            data_df[x_col] = pd.to_numeric(data_df[x_col], errors='coerce')
-            data_df = data_df.dropna(subset=[x_col])
-            data_df[x_col] = data_df[x_col].astype(int).astype(str)
+            data_df = raw_df.iloc[header_row_idx + 1:].copy()
             
-            # Ensure all disease column names are valid strings
-            clean_headers = [x_col]
-            for idx, h in enumerate(headers[1:], start=1):
-                if not h or h.upper() in ['NAN', 'NONE'] or 'UNNAMED' in h.upper():
-                    clean_headers.append(f"Penyakit_{idx}")
-                else:
-                    clean_headers.append(h)
-            data_df.columns = clean_headers
+            data_df[epid_col_idx] = pd.to_numeric(data_df[epid_col_idx], errors='coerce')
+            data_df = data_df.dropna(subset=[epid_col_idx])
+            data_df[epid_col_idx] = data_df[epid_col_idx].astype(int).astype(str)
             
-            return data_df.reset_index(drop=True)
+            clean_dict = {'Minggu Epid': data_df[epid_col_idx].tolist()}
+            
+            for col_i in range(epid_col_idx + 1, min(len(raw_headers), 30)):
+                raw_name = raw_headers[col_i] if col_i < len(raw_headers) else f"Series_{col_i}"
+                
+                clean_name = raw_name
+                raw_name_low = str(raw_name).lower().strip()
+                for key, val in HEADER_CLEAN_MAP.items():
+                    if key in raw_name_low:
+                        clean_name = val
+                        break
+                
+                vals = pd.to_numeric(data_df[col_i], errors='coerce').fillna(0).tolist()
+                clean_dict[clean_name] = vals
+                
+            return pd.DataFrame(clean_dict)
     except Exception as e:
         st.warning(f"Note: Could not retrieve chart data: {e}")
         return pd.DataFrame()
@@ -676,16 +728,12 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         sl = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
-        # Column 0 in clean df_graf is 'Minggu Epid' (Col B)
-        x_col = df_graf.columns[0]
-        categories = [str(x) for x in df_graf[x_col].tolist()]
-        
-        # Columns 1 onwards are disease series
-        disease_cols = [c for c in df_graf.columns[1:] if not str(c).startswith('Unnamed')]
+        categories = [str(x) for x in df_graf['Minggu Epid'].tolist()]
+        series_cols = [c for c in df_graf.columns if c != 'Minggu Epid']
         
         chart_data = CategoryChartData()
         chart_data.categories = categories
-        for sn in disease_cols:
+        for sn in series_cols:
             series_vals = pd.to_numeric(df_graf[sn], errors='coerce').fillna(0).tolist()
             chart_data.add_series(str(sn), series_vals)
             
@@ -700,18 +748,17 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         chart.legend.font.size = Pt(10)
         
         for series in chart.series:
-            sn = series.name.strip().lower()
-            color = None
-            for key, c in DISEASE_COLORS.items():
-                k_low = key.lower()
-                if k_low in sn or sn in k_low or any(w in sn for w in k_low.split() if len(w) > 3):
-                    color = c
-                    break
+            sn = series.name.strip()
+            color = DISEASE_COLORS.get(sn, None)
+            if not color:
+                for key, c in DISEASE_COLORS.items():
+                    if key.lower() in sn.lower() or sn.lower() in key.lower():
+                        color = c
+                        break
             if color:
                 series.format.fill.solid()
                 series.format.fill.fore_color.rgb = color
 
-        # Dashed line at year reset (where Epi Week drops from 52/53 back to 1)
         idx_reset = -1
         for i in range(1, len(categories)):
             try:
