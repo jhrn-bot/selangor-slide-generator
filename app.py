@@ -724,12 +724,13 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             add_bottom_banner(sl)
 
     # --- Slide X: Tren Wabak Native Chart ---
-    if not df_graf.empty:
+    if not df_graf.empty and len(df_graf.columns) > 1:
         sl = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
-        categories = [str(x) for x in df_graf['Minggu Epid'].tolist()]
-        series_cols = [c for c in df_graf.columns if c != 'Minggu Epid']
+        x_col = df_graf.columns[0]
+        categories = [str(x) for x in df_graf[x_col].tolist()]
+        series_cols = [c for c in df_graf.columns[1:] if not str(c).startswith('Unnamed')]
         
         chart_data = CategoryChartData()
         chart_data.categories = categories
