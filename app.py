@@ -1429,8 +1429,3 @@ if uploaded_file:
             )
 else:
     st.info("⚠️ Please upload the Excel file. The presentation and report files will automatically generate once uploaded.")
-```
-
-### Changes implemented:
-1. **Added `generate_lewat_excel(lewat_24h_df, lewat_7d_df)`**: Formats the exact statistics (e.g. `10 (1)` or `-`) across all districts and exports two clean sheets: `"Lewat 24 Jam"` and `"Lewat 7 Hari"`.
-2. **Dual Download Buttons**: Used `st.columns(2)` so users can download either the PowerPoint presentation (`.pptx`) or the dual-sheet Excel file (`.xlsx`) directly.
