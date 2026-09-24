@@ -73,31 +73,33 @@ DIAG_TEMPOH_7D = [
 NAVY = RGBColor(27, 54, 93)
 LIGHT_GREY = RGBColor(211, 211, 211)
 
+# Exact RGB Color Mapping derived from your reference legend
 DISEASE_COLORS = {
-    'Denggi': RGBColor(255, 0, 0),
-    'Malaria': RGBColor(255, 165, 0),
-    'Chikungunya': RGBColor(144, 238, 144),
-    'HFMD': RGBColor(50, 205, 50),
-    'Keracunan Makanan': RGBColor(30, 144, 255),
-    'Influenza / ILI': RGBColor(0, 0, 139),
-    'Chickenpox': RGBColor(25, 25, 112),
-    'COVID-19': RGBColor(220, 20, 60),
-    'Tuberkulosis': RGBColor(128, 0, 128),
-    'Measles': RGBColor(139, 69, 19),
-    'Rotavirus': RGBColor(0, 100, 0),
-    'Norovirus': RGBColor(135, 206, 235),
-    'Disyaki Norovirus': RGBColor(255, 140, 0),
-    'AGE': RGBColor(169, 169, 169),
-    'Respiratory Syncytial Virus (RSV)': RGBColor(160, 82, 45),
-    'Pertussis': RGBColor(211, 211, 211),
-    'Scabies': RGBColor(128, 128, 0),
-    'Hepatitis A': RGBColor(0, 128, 128),
-    'Adenovirus': RGBColor(65, 105, 225),
-    'Difteria': RGBColor(255, 127, 80),
-    'Leptospirosis': RGBColor(119, 136, 153),
-    'Disyaki Rotavirus': RGBColor(0, 0, 205),
-    'Mpox': RGBColor(46, 139, 87),
-    'Konjunktivitis': RGBColor(176, 224, 230)
+    'Denggi': RGBColor(255, 0, 0),                           # Red
+    'Malaria': RGBColor(237, 125, 49),                       # Orange
+    'Chikungunya': RGBColor(146, 208, 80),                   # Light Green
+    'HFMD': RGBColor(169, 209, 142),                         # Sage / Soft Lime
+    'Keracunan Makanan': RGBColor(68, 114, 196),             # Cobalt Blue
+    'Influenza / ILI': RGBColor(96, 40, 130),                # Dark Indigo / Purple
+    'Chickenpox': RGBColor(0, 32, 96),                       # Dark Navy Blue
+    'COVID-19': RGBColor(255, 0, 0),                         # Bright Red
+    'Tuberkulosis': RGBColor(112, 48, 160),                  # Purple
+    'Measles': RGBColor(128, 96, 0),                         # Olive Brown
+    'Rotavirus': RGBColor(55, 86, 35),                       # Dark Olive Green
+    'Norovirus': RGBColor(122, 182, 229),                    # Sky Blue
+    'Disyaki Norovirus': RGBColor(248, 161, 108),            # Peach / Light Orange
+    'AGE': RGBColor(180, 180, 180),                          # Light Grey
+    'Respiratory Syncytial Virus (RSV)': RGBColor(139, 58, 0), # Chocolate Brown
+    'Pertussis': RGBColor(200, 200, 200),                    # Light Grey
+    'Scabies': RGBColor(84, 130, 53),                        # Olive Green
+    'Hepatitis A': RGBColor(146, 208, 80),                   # Soft Olive
+    'Adenovirus': RGBColor(47, 117, 181),                    # Medium Blue
+    'Difteria': RGBColor(220, 88, 21),                       # Burnt Orange
+    'Leptospirosis': RGBColor(127, 127, 127),                # Medium Grey
+    'Disentri': RGBColor(197, 143, 0),                       # Ochre / Gold
+    'Disyaki Rotavirus': RGBColor(46, 85, 155),              # Royal Blue
+    'Mpox': RGBColor(84, 130, 53),                           # Dark Green
+    'Konjunktivitis': RGBColor(157, 195, 230)                # Light Blue
 }
 
 # ---------------------------------------------------------
@@ -224,7 +226,6 @@ def fetch_bencana_data():
 
 @st.cache_data(ttl=600)
 def fetch_graf_data():
-    # Range B2:AD extracts Row 2 headers (Minggu Epid + Diseases) and rows 3+ data
     req = urllib.request.Request(
         f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=B2:AD",
         headers={'User-Agent': 'Mozilla/5.0'}
@@ -234,7 +235,6 @@ def fetch_graf_data():
             df = pd.read_csv(io.BytesIO(resp.read()))
             df.columns = [str(c).strip() for c in df.columns]
             
-            # Clean up 'Minggu Epid' column (Col B)
             first_col = df.columns[0]
             df = df.dropna(subset=[first_col])
             df[first_col] = pd.to_numeric(df[first_col], errors='coerce')
@@ -650,12 +650,11 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                     cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i in [0, 1] or j == 0 or ij else RGBColor(255,255,255)
             add_bottom_banner(sl)
 
-    # --- Slide X: Tren Wabak Chart ---
+    # --- Slide X: Tren Wabak Native Chart ---
     if not df_graf.empty:
         sl = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
-        # Col B (index 0 in df_graf) is 'Minggu Epid', Cols C..AD (index 1..) are diseases
         categories = [str(int(float(x))) for x in df_graf.iloc[:, 0].tolist()]
         series_names = df_graf.columns[1:].tolist()
         
@@ -680,7 +679,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 series.format.fill.solid()
                 series.format.fill.fore_color.rgb = color
 
-        # Dashed line at year reset (where Epi Week drops from 52/53 back to 1)
         idx_reset = -1
         for i in range(1, len(categories)):
             try:
