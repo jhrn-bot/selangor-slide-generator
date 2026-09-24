@@ -731,10 +731,13 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 
         df_graf_clean = df_graf.loc[keep_indices].reset_index(drop=True)
 
+    # Subtitle for charts: always spans year-1 to year (e.g. ME01 /2025 - ME 37 /2026)
+    chart_subtitle = f"ME01 /{year-1} - ME {epi_week:02d} /{year}"
+
     # --- Slide X: Tren Wabak Native Chart (All Diseases) ---
     if not df_graf_clean.empty:
         sl = prs.slides.add_slide(prs.slide_layouts[6])
-        add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
+        add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", chart_subtitle)
         
         categories = [str(x) for x in df_graf_clean['Minggu Epid'].tolist()]
         series_cols = [
@@ -816,11 +819,10 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     # --- Slide X+1: Tren Wabak Native Chart (Tanpa Wabak Vektor) ---
     if not df_graf_clean.empty:
         sl_nv = prs.slides.add_slide(prs.slide_layouts[6])
-        add_slide_header(sl_nv, "Tren Wabak Mengikut Jenis Penyakit Berjangkit (Tanpa Wabak Vektor)", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
+        add_slide_header(sl_nv, "Tren Wabak Mengikut Jenis Penyakit Berjangkit (Tanpa Wabak Vektor)", chart_subtitle)
         
         categories = [str(x) for x in df_graf_clean['Minggu Epid'].tolist()]
         
-        # Exclude Denggi, Malaria, Chikungunya (Vector diseases)
         vector_diseases_lower = ['denggi', 'malaria', 'chikungunya']
         series_cols_non_vector = [
             c for c in df_graf_clean.columns 
