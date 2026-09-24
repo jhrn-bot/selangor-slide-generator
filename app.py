@@ -2,6 +2,7 @@ import datetime
 import io
 import os
 import urllib.request
+import requests
 import pandas as pd
 import streamlit as st
 from pptx import Presentation
@@ -18,7 +19,10 @@ st.set_page_config(
     layout="centered"
 )
 
+# --- Configuration & Webhook URL ---
 GOOGLE_SLIDES_ID = "1QFVgrEPqgiDditxLQhHRLapQOqaCjZnt"
+WEB_APP_URL = "https://script.google.com/macros/s/AKfycbweSjIzVLLvCGlefTmauCoUMn0OU57tlaKFookjfkF2ckUqyL2Lz9H_BGtmAk1akyxN/exec"
+
 VALID_DISTRICTS = [
     'GOMBAK', 'HULU LANGAT', 'HULU SELANGOR', 'KLANG', 
     'KUALA LANGAT', 'KUALA SELANGOR', 'PETALING', 
@@ -75,6 +79,37 @@ def get_previous_epi_week():
 
 epi_week, year = get_previous_epi_week()
 
+# --- Helper Function: Export via Webhook ---
+def push_data_via_webhook(df_raw, target_me, sheet_name="raw", mode="overwrite"):
+    col_me = df_raw.columns[5]  # Column F (Epid Week)
+    
+    df_filtered = df_raw[pd.to_numeric(df_raw[col_me], errors='coerce') == target_me].copy()
+    
+    if df_filtered.empty:
+        st.warning(f"No records found for ME {target_me}.")
+        return 0
+
+    df_clean = df_filtered.fillna("").astype(str)
+    
+    if mode == "overwrite":
+        payload_data = [df_clean.columns.tolist()] + df_clean.values.tolist()
+    else:
+        payload_data = df_clean.values.tolist()
+
+    payload = {
+        "sheetName": sheet_name,
+        "mode": mode,
+        "data": payload_data
+    }
+
+    response = requests.post(WEB_APP_URL, json=payload, timeout=60)
+    result = response.json()
+    
+    if result.get("status") == "success":
+        return len(df_filtered)
+    else:
+        raise Exception(result.get("message", "Failed to update Google Sheet"))
+
 def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
@@ -106,12 +141,13 @@ def write_cell(cell, text, bold=True, align_left=False, is_red=False, size=12):
         run.font.color.rgb = RGBColor(255, 0, 0) if is_red else NAVY
     return tf.paragraphs[0]
 
+# --- Streamlit UI ---
 st.title("📊 Selangor Epi Review Slide Generator")
 st.write(f"Target Output: **ME {epi_week:02d} / {year}** (Malaysia Time UTC+8)")
 
 st.divider()
 st.subheader("1. Upload Data")
-uploaded_file = st.file_uploader("Upload raw Excel data for Analisa e-Notifikasi", type=["xlsx", "xls"])
+uploaded_file = st.file_uploader("Upload raw Excel data", type=["xlsx", "xls"])
 
 def fetch_google_slides_pptx(file_id):
     url = f"https://docs.google.com/presentation/d/{file_id}/export/pptx"
@@ -230,7 +266,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
 
     district_names = [d[0] for d in DISTRICT_ABBR]
 
-    # Slide 5: Belum Ambil Tindakan by Diagnosis & District
+    # Slide 5: Belum Ambil Tindakan
     df_belum = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'BELUM AMBIL TINDAKAN')
@@ -248,7 +284,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     else:
         ct = pd.DataFrame(columns=[col_dx] + district_names + ['JUM'])
 
-    # Slide 6: Viral Hepatitis Subdiagnosis Belum Ambil Tindakan
+    # Slide 6: Viral Hepatitis Subdiagnosis (Belum Ambil Tindakan)
     df_hep = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'BELUM AMBIL TINDAKAN') &
@@ -267,7 +303,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     else:
         hep_ct = pd.DataFrame(columns=[col_dy] + district_names + ['JUM'])
 
-    # Slide 7: Daftar Notifikasi (Specific Inclusion Diagnoses ≤ 7 hari)
+    # Slide 7: Daftar Notifikasi (Inclusion List)
     df_dn = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
@@ -285,7 +321,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     else:
         dn_ct = pd.DataFrame(columns=[col_dx] + district_names + ['JUM'])
 
-    # Slide 8: Daftar Notifikasi (Exclusion Diagnoses ≤ 14 hari)
+    # Slide 8: Daftar Notifikasi (Exclusion List)
     df_dn_exc = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
@@ -303,7 +339,7 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     else:
         dn_exc_ct = pd.DataFrame(columns=[col_dx] + district_names + ['JUM'])
 
-    # Slide 9: Viral Hepatitis Subdiagnosis (Daftar Notifikasi ≤ 14 hari)
+    # Slide 9: Viral Hepatitis Subdiagnosis (Daftar Notifikasi)
     df_hep_dn = df_clean[
         (df_clean[col_me] == target_me) & 
         (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
@@ -1062,6 +1098,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 st.divider()
 
 if uploaded_file:
+    df_raw = pd.read_excel(uploaded_file)
+
     with st.spinner("Processing data and generating slides automatically..."):
         total_rows, stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct = load_and_process_data(
             uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14
@@ -1079,5 +1117,17 @@ if uploaded_file:
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             use_container_width=True
         )
+
+    # --- Section 2: Google Sheets Export Option ---
+    st.divider()
+    st.subheader("2. Export Raw Data to Google Sheet")
+    if st.button(f"🚀 Export ME {epi_week:02d} Data to Google Sheet ('raw' tab)"):
+        with st.spinner("Pushing filtered rows to Google Sheet..."):
+            try:
+                count = push_data_via_webhook(df_raw, target_me=epi_week, sheet_name="raw", mode="overwrite")
+                if count > 0:
+                    st.success(f"Successfully exported {count:,} rows for ME {epi_week:02d} to your Google Sheet!")
+            except Exception as e:
+                st.error(f"Error exporting data: {e}")
 else:
-    st.info("⚠️ Please upload the Excel file. The presentation will automatically generate and download once the file is uploaded.")
+    st.info("⚠️ Please upload the Excel file. The presentation will automatically generate once uploaded.")
