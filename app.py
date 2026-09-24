@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.util import Inches, Pt
 from pptx.oxml.xmlchemy import OxmlElement
@@ -225,7 +225,6 @@ def fetch_bencana_data():
 
 @st.cache_data(ttl=600)
 def fetch_graf_data():
-    # Query range A2:AD92 directly matching the Google Sheets Chart Editor Data Range
     url = f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=A2:AD92"
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
@@ -233,7 +232,6 @@ def fetch_graf_data():
             df = pd.read_csv(io.BytesIO(resp.read()))
             df.columns = [str(c).strip() for c in df.columns]
             
-            # Identify 'Minggu Epid' column (Column B)
             epid_col = None
             for col in df.columns:
                 if 'MINGGU' in col.upper() or 'EPID' in col.upper():
@@ -242,7 +240,6 @@ def fetch_graf_data():
             if not epid_col and len(df.columns) > 1:
                 epid_col = df.columns[1]
                 
-            # Filter rows with valid Minggu Epid numbers
             df = df.dropna(subset=[epid_col])
             df[epid_col] = pd.to_numeric(df[epid_col], errors='coerce')
             df = df.dropna(subset=[epid_col])
@@ -664,7 +661,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         sl = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
-        # Col B (index 1 / 'Minggu Epid') is X-Axis categories
+        # Column B ('Minggu Epid') is X-Axis categories
         epid_col = None
         for col in df_graf.columns:
             if 'MINGGU' in col.upper() or 'EPID' in col.upper():
@@ -675,7 +672,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
         categories = [str(x) for x in df_graf[epid_col].tolist()]
         
-        # Cols C..AD (indices 2 onwards) are disease series
+        # Columns C..AD (indices 2 onwards) are disease series
         epid_idx = list(df_graf.columns).index(epid_col)
         series_cols = [c for c in df_graf.columns[epid_idx + 1:] if not str(c).startswith('Unnamed')]
         
@@ -722,7 +719,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         if idx_reset != -1:
             plot_width = 10.0
             x_pos = 0.4 + (plot_width / len(categories)) * idx_reset
-            line = sl.shapes.add_shape(MSO_SHAPE.LINE, Inches(x_pos), Inches(1.5), Inches(x_pos), Inches(6.5))
+            line = sl.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(1.5), Inches(x_pos), Inches(6.5))
             line.line.color.rgb = RGBColor(0, 0, 0)
             line.line.width = Pt(4)
             line.line.dash_style = 7
