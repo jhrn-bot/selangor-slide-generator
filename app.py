@@ -12,6 +12,8 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.util import Inches, Pt
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.oxml.ns import qn
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
 
 # ---------------------------------------------------------
 # Page Configuration & Constants
@@ -25,6 +27,7 @@ st.set_page_config(
 GOOGLE_SLIDES_ID = "1QFVgrEPqgiDditxLQhHRLapQOqaCjZnt"
 WABAK_SHEET_ID = "1uVcFp4zSF_gIHdq1BedDFNpuQks0E5AxKJnHbXMsYJE"
 BENCANA_SHEET_ID = "1Fp6IORRfdWSJCTC8vqSSoQz6RpCpNXHzO6jj0tHEf2c"
+CHART_SHEET_ID = "1SMu8z0MONnxkduZEaRyVNrEnH7KkvnJ9EjuVxSi3WOY"
 
 VALID_DISTRICTS = [
     'GOMBAK', 'HULU LANGAT', 'HULU SELANGOR', 'KLANG', 
@@ -33,15 +36,9 @@ VALID_DISTRICTS = [
 ]
 
 DISTRICT_ABBR = [
-    ('GOMBAK', 'GBK'),
-    ('HULU LANGAT', 'HL'),
-    ('HULU SELANGOR', 'HS'),
-    ('KLANG', 'KLG'),
-    ('KUALA LANGAT', 'KL'),
-    ('KUALA SELANGOR', 'KS'),
-    ('PETALING', 'PTG'),
-    ('SABAK BERNAM', 'SB'),
-    ('SEPANG', 'SPG')
+    ('GOMBAK', 'GBK'), ('HULU LANGAT', 'HL'), ('HULU SELANGOR', 'HS'),
+    ('KLANG', 'KLG'), ('KUALA LANGAT', 'KL'), ('KUALA SELANGOR', 'KS'),
+    ('PETALING', 'PTG'), ('SABAK BERNAM', 'SB'), ('SEPANG', 'SPG')
 ]
 
 INCLUSION_DIAGNOSES = (
@@ -74,53 +71,63 @@ DIAG_TEMPOH_7D = [
 ]
 
 NAVY = RGBColor(27, 54, 93)
-LIGHT_GREY = RGBColor(211, 211, 211)  # #D3D3D3
+LIGHT_GREY = RGBColor(211, 211, 211)
+
+DISEASE_COLORS = {
+    'Denggi': RGBColor(255, 0, 0),
+    'Malaria': RGBColor(255, 165, 0),
+    'Chikungunya': RGBColor(144, 238, 144),
+    'HFMD': RGBColor(50, 205, 50),
+    'Keracunan Makanan': RGBColor(30, 144, 255),
+    'Influenza / ILI': RGBColor(0, 0, 139),
+    'Chickenpox': RGBColor(25, 25, 112),
+    'COVID-19': RGBColor(220, 20, 60),
+    'Tuberkulosis': RGBColor(128, 0, 128),
+    'Measles': RGBColor(139, 69, 19),
+    'Rotavirus': RGBColor(0, 100, 0),
+    'Norovirus': RGBColor(135, 206, 235),
+    'Disyaki Norovirus': RGBColor(255, 140, 0),
+    'AGE': RGBColor(169, 169, 169),
+    'Respiratory Syncytial Virus (RSV)': RGBColor(160, 82, 45),
+    'Pertussis': RGBColor(211, 211, 211),
+    'Scabies': RGBColor(128, 128, 0),
+    'Hepatitis A': RGBColor(0, 128, 128),
+    'Adenovirus': RGBColor(65, 105, 225),
+    'Difteria': RGBColor(255, 127, 80),
+    'Leptospirosis': RGBColor(119, 136, 153),
+    'Disyaki Rotavirus': RGBColor(0, 0, 205),
+    'Mpox': RGBColor(46, 139, 87),
+    'Konjunktivitis': RGBColor(176, 224, 230)
+}
 
 # ---------------------------------------------------------
-# Helper Functions: Epiweek & Date Parsing
+# Helper Functions
 # ---------------------------------------------------------
 def get_previous_epi_week():
     myt_zone = datetime.timezone(datetime.timedelta(hours=8))
     today = datetime.datetime.now(myt_zone).date()
-    
     last_week_date = today - datetime.timedelta(days=7)
     jan_1 = datetime.date(last_week_date.year, 1, 1)
     jan_1_day = jan_1.isoweekday() % 7
     first_sunday = jan_1 if jan_1_day == 0 else jan_1 + datetime.timedelta(days=(7 - jan_1_day))
-    
     if last_week_date < first_sunday:
-        epi_week = 1
-        year = last_week_date.year
-    else:
-        days_diff = (last_week_date - first_sunday).days
-        epi_week = (days_diff // 7) + 1
-        year = last_week_date.year
-        
-    return epi_week, year
+        return 1, last_week_date.year
+    days_diff = (last_week_date - first_sunday).days
+    return (days_diff // 7) + 1, last_week_date.year
 
 epi_week, year = get_previous_epi_week()
 
 def parse_excel_date(val):
-    if pd.isna(val) or val == '' or str(val).strip().upper() == 'NAN':
-        return None
+    if pd.isna(val) or str(val).strip().upper() in ['NAN', '']: return None
     if isinstance(val, (datetime.datetime, datetime.date, pd.Timestamp)):
         return val.date() if hasattr(val, 'date') else val
-    try:
-        num = float(val)
-        return (datetime.datetime(1899, 12, 30) + datetime.timedelta(days=num)).date()
-    except Exception:
-        pass
-    try:
-        return pd.to_datetime(val, errors='coerce').date()
-    except Exception:
-        return None
+    try: return (datetime.datetime(1899, 12, 30) + datetime.timedelta(days=float(val))).date()
+    except: pass
+    try: return pd.to_datetime(val, errors='coerce').date()
+    except: return None
 
-# ---------------------------------------------------------
-# Presentation Styling Helpers
-# ---------------------------------------------------------
 def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
-    tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
+    tcPr = cell._tc.get_or_add_tcPr()
     for line_type in ['a:lnL', 'a:lnR', 'a:lnT', 'a:lnB']:
         ln = tcPr.find(qn(line_type))
         if ln is None:
@@ -137,8 +144,7 @@ def write_cell(cell, text, bold=True, align_left=False, is_red=False, size=12):
     cell.text = ""
     tf = cell.text_frame
     tf.word_wrap = True
-    lines = str(text).split('\n')
-    for idx, line_str in enumerate(lines):
+    for idx, line_str in enumerate(str(text).split('\n')):
         p = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
         p.alignment = PP_ALIGN.LEFT if align_left else PP_ALIGN.CENTER
         run = p.add_run()
@@ -149,403 +155,193 @@ def write_cell(cell, text, bold=True, align_left=False, is_red=False, size=12):
         run.font.color.rgb = RGBColor(255, 0, 0) if is_red else NAVY
     return tf.paragraphs[0]
 
-def format_cell_stat(tot, swasta, zero_as_dash=True):
-    if tot == 0:
-        return "-" if zero_as_dash else "0"
-    if swasta > 0:
-        return f"{tot} ({swasta})"
-    return f"{tot}"
-
 def write_wabak_cell(cell, text, bold=True, align_left=False, size=13):
     cell.text = ""
     tf = cell.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.alignment = PP_ALIGN.LEFT if align_left else PP_ALIGN.CENTER
-    
     val_str = str(text).strip()
-    if val_str.lower() in ["nan", "none", ""]:
-        val_str = "-"
-        
-    val_str = re.sub(r'\(rsv\)', '(RSV)', val_str, flags=re.IGNORECASE)
     
-    match = re.search(r'^(.*?)\s*(\(\d+\))$', val_str)
+    if val_str.lower() in ["nan", "none", ""]: val_str = "-"
+    val_str = re.sub(r'\(Rsv\)', '(RSV)', val_str, flags=re.IGNORECASE)
+    
+    match = re.search(r'^(.*?)\s*(\([0-9]+\))$', val_str)
     if match:
-        main_part = match.group(1).strip()
-        paren_part = match.group(2).strip()
-        
-        if main_part:
+        if match.group(1).strip():
             run1 = p.add_run()
-            run1.text = main_part + " "
-            run1.font.size = Pt(size)
-            run1.font.name = 'Calibri'
-            run1.font.bold = bold
-            run1.font.color.rgb = NAVY
-            
+            run1.text = match.group(1).strip() + " "
+            run1.font.size, run1.font.name, run1.font.bold, run1.font.color.rgb = Pt(size), 'Calibri', bold, NAVY
         run2 = p.add_run()
-        run2.text = paren_part
-        run2.font.size = Pt(size)
-        run2.font.name = 'Calibri'
-        run2.font.bold = bold
-        run2.font.color.rgb = RGBColor(255, 0, 0)
+        run2.text = match.group(2).strip()
+        run2.font.size, run2.font.name, run2.font.bold, run2.font.color.rgb = Pt(size), 'Calibri', bold, RGBColor(255, 0, 0)
     else:
         run = p.add_run()
         run.text = val_str
-        run.font.size = Pt(size)
-        run.font.name = 'Calibri'
-        run.font.bold = bold
-        run.font.color.rgb = NAVY
+        run.font.size, run.font.name, run.font.bold, run.font.color.rgb = Pt(size), 'Calibri', bold, NAVY
 
 def write_header_with_red_me(cell, prefix, me_str, size=13, newline=False):
     cell.text = ""
-    tf = cell.text_frame
-    tf.word_wrap = True
-    p = tf.paragraphs[0]
+    p = cell.text_frame.paragraphs[0]
     p.alignment = PP_ALIGN.CENTER
-    
     run1 = p.add_run()
     run1.text = prefix + ("\n" if newline else " ")
-    run1.font.size = Pt(size)
-    run1.font.name = 'Calibri'
-    run1.font.bold = True
-    run1.font.color.rgb = NAVY
-    
+    run1.font.size, run1.font.name, run1.font.bold, run1.font.color.rgb = Pt(size), 'Calibri', True, NAVY
     run2 = p.add_run()
     run2.text = me_str
-    run2.font.size = Pt(size)
-    run2.font.name = 'Calibri'
-    run2.font.bold = True
-    run2.font.color.rgb = RGBColor(255, 0, 0)
+    run2.font.size, run2.font.name, run2.font.bold, run2.font.color.rgb = Pt(size), 'Calibri', True, RGBColor(255, 0, 0)
 
+def format_cell_stat(tot, swasta, zero_as_dash=True):
+    if tot == 0: return "-" if zero_as_dash else "0"
+    return f"{tot} ({swasta})" if swasta > 0 else f"{tot}"
+
+# ---------------------------------------------------------
+# Data Fetchers
+# ---------------------------------------------------------
 def fetch_google_slides_pptx(file_id):
-    url = f"https://docs.google.com/presentation/d/{file_id}/export/pptx"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    with urllib.request.urlopen(req) as response:
-        return io.BytesIO(response.read())
+    req = urllib.request.Request(f"https://docs.google.com/presentation/d/{file_id}/export/pptx", headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req) as response: return io.BytesIO(response.read())
 
 @st.cache_data(ttl=600)
 def fetch_wabak_data():
-    url = f"https://docs.google.com/spreadsheets/d/{WABAK_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=final"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    req = urllib.request.Request(f"https://docs.google.com/spreadsheets/d/{WABAK_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=final", headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as resp:
             df_sheet = pd.read_csv(io.BytesIO(resp.read()), header=None)
             df_p_aa = df_sheet.iloc[1:, 15:27].copy()
             df_p_aa = df_p_aa.dropna(subset=[df_p_aa.columns[1]])
-            df_p_aa = df_p_aa[df_p_aa.iloc[:, 1].astype(str).str.strip() != '']
-            return df_p_aa
-    except Exception as e:
-        st.warning(f"Note: Could not retrieve Wabak sheet automatically: {e}")
-        return pd.DataFrame()
+            return df_p_aa[df_p_aa.iloc[:, 1].astype(str).str.strip() != '']
+    except: return pd.DataFrame()
 
 @st.cache_data(ttl=600)
 def fetch_bencana_data():
-    url = f"https://docs.google.com/spreadsheets/d/{BENCANA_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=table%202026"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    req = urllib.request.Request(f"https://docs.google.com/spreadsheets/d/{BENCANA_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=table%202026", headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as resp:
             df_sheet = pd.read_csv(io.BytesIO(resp.read()), header=None)
-            # AH:AU spans 14 columns (0-indexed 33 to 46 inclusive)
-            if df_sheet.shape[1] >= 47:
-                df_ah_au = df_sheet.iloc[1:, 33:47].copy()
-            else:
-                df_ah_au = df_sheet.iloc[1:, 33:].copy()
-            
+            df_ah_au = df_sheet.iloc[2:, 33:47].copy()
             df_ah_au = df_ah_au.dropna(subset=[df_ah_au.columns[0]])
-            df_ah_au = df_ah_au[df_ah_au.iloc[:, 0].astype(str).str.strip() != '']
-            df_ah_au = df_ah_au[~df_ah_au.iloc[:, 0].astype(str).str.upper().str.contains('INSIDEN|BENCANA|PECAHAN|^NAN$')]
-            return df_ah_au
-    except Exception as e:
-        st.warning(f"Note: Could not retrieve Bencana sheet automatically: {e}")
-        return pd.DataFrame()
+            return df_ah_au[df_ah_au.iloc[:, 0].astype(str).str.strip() != '']
+    except: return pd.DataFrame()
+
+@st.cache_data(ttl=600)
+def fetch_graf_data():
+    req = urllib.request.Request(f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER", headers={'User-Agent': 'Mozilla/5.0'})
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return pd.read_csv(io.BytesIO(resp.read()))
+    except: return pd.DataFrame()
 
 # ---------------------------------------------------------
-# Data Processing
+# Main Data Processing
 # ---------------------------------------------------------
 @st.cache_data
 def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     df = pd.read_excel(file)
-    col_me = df.columns[5]    # Column F
-    col_bc = df.columns[54]   # Column BC
-    col_bi = df.columns[60]   # Column BI
-    col_bp = df.columns[67]   # Column BP
-    col_br = df.columns[69]   # Column BR
-    col_bt = df.columns[71]   # Column BT
-    col_cd = df.columns[81]   # Column CD
-    col_dt = df.columns[123]  # Column DT
-    col_dx = df.columns[127]  # Column DX
-    col_dy = df.columns[128]  # Column DY
+    c_me, c_bc, c_bi, c_bp, c_br, c_bt, c_cd, c_dt, c_dx, c_dy = df.columns[5], df.columns[54], df.columns[60], df.columns[67], df.columns[69], df.columns[71], df.columns[81], df.columns[123], df.columns[127], df.columns[128]
 
-    df_clean = df[df[col_dt].isin(VALID_DISTRICTS)].copy()
-    df_clean[col_me] = pd.to_numeric(df_clean[col_me], errors='coerce')
+    df_clean = df[df[c_dt].isin(VALID_DISTRICTS)].copy()
+    df_clean[c_me] = pd.to_numeric(df_clean[c_me], errors='coerce')
+    df_semasa = df_clean[df_clean[c_me] == target_me]
+    df_kumulatif = df_clean[df_clean[c_me] <= target_me]
     
-    df_semasa = df_clean[df_clean[col_me] == target_me]
-    df_kumulatif = df_clean[df_clean[col_me] <= target_me]
-    
-    # Slide 2 Stats
-    def get_stats(df_subset):
-        total = len(df_subset)
-        counts = df_subset[col_br].value_counts().to_dict()
-        daftar_notifikasi = counts.get('Daftar Notifikasi', 0)
-        daftar_kes = counts.get('Daftar Kes', 0)
-        abai = counts.get('Abai Notifikasi', 0)
-        belum = counts.get('Belum Ambil Tindakan', 0)
-        batal = counts.get('Batal Daftar', 0)
-        return {
-            'total': total,
-            'daftar_notifikasi': daftar_notifikasi,
-            'daftar_kes': daftar_kes,
-            'abai': abai,
-            'belum': belum,
-            'batal': batal,
-            'pct_daftar_notif': f"{(daftar_notifikasi/total*100):.0f}%" if total else "0%",
-            'pct_daftar_kes': f"{(daftar_kes/total*100):.0f}%" if total else "0%",
-            'pct_abai': f"{(abai/total*100):.0f}%" if total else "0%",
-            'pct_belum': f"{(belum/total*100):.2f}%" if total else "0.00%",
-            'pct_batal': f"{(batal/total*100):.2f}%" if total else "0.00%",
-        }
+    def get_stats(d_sub):
+        tot = len(d_sub)
+        c = d_sub[c_br].value_counts().to_dict()
+        return {'total': tot, 'daftar_notifikasi': c.get('Daftar Notifikasi',0), 'daftar_kes': c.get('Daftar Kes',0), 'abai': c.get('Abai Notifikasi',0), 'belum': c.get('Belum Ambil Tindakan',0), 'batal': c.get('Batal Daftar',0), 'pct_daftar_notif': f"{(c.get('Daftar Notifikasi',0)/tot*100):.0f}%" if tot else "0%", 'pct_daftar_kes': f"{(c.get('Daftar Kes',0)/tot*100):.0f}%" if tot else "0%", 'pct_abai': f"{(c.get('Abai Notifikasi',0)/tot*100):.0f}%" if tot else "0%", 'pct_belum': f"{(c.get('Belum Ambil Tindakan',0)/tot*100):.2f}%" if tot else "0.00%", 'pct_batal': f"{(c.get('Batal Daftar',0)/tot*100):.2f}%" if tot else "0.00%"}
         
     stats_semasa = get_stats(df_semasa)
     stats_kumulatif = get_stats(df_kumulatif)
 
-    # Slide 3: Penyakit
-    df_clean[col_dx] = df_clean[col_dx].astype(str).str.strip().str.upper()
-    df_clean[col_dx] = df_clean[col_dx].replace({'MONKEYPOX': 'MPOX'})
-    df_kumu_penyakit = df_clean[df_clean[col_me] <= target_me]
+    df_clean[c_dx] = df_clean[c_dx].astype(str).str.strip().str.upper().replace({'MONKEYPOX': 'MPOX'})
+    df_kumu_penyakit = df_clean[df_clean[c_me] <= target_me]
     
-    diseases = df_kumu_penyakit[col_dx].unique()
     data_penyakit = []
-    for dx in diseases:
+    for dx in df_kumu_penyakit[c_dx].unique():
         if pd.isna(dx) or dx == 'NAN': continue
-        df_dx = df_kumu_penyakit[df_kumu_penyakit[col_dx] == dx]
-        is_daftar_kes = df_dx[col_br].astype(str).str.strip().str.upper() == 'DAFTAR KES'
-        is_mati = df_dx[col_bt].astype(str).str.strip().str.upper() == 'MATI'
-        kumulatif_all_notif = len(df_dx)
-        if kumulatif_all_notif == 0: continue
-        semasa_daftar_kes = len(df_dx[(df_dx[col_me] == target_me) & is_daftar_kes])
-        kumulatif_daftar_kes = len(df_dx[is_daftar_kes])
-        kumulatif_mati = len(df_dx[is_mati])
-        peratus = (kumulatif_daftar_kes / kumulatif_all_notif * 100)
-        data_penyakit.append({
-            'Penyakit': dx,
-            'Semasa': semasa_daftar_kes,
-            'Kumulatif': kumulatif_daftar_kes,
-            'Mati': kumulatif_mati,
-            'Peratus': peratus
-        })
-        
-    df_penyakit = pd.DataFrame(data_penyakit)
-    if not df_penyakit.empty:
-        df_penyakit = df_penyakit.sort_values(by=['Kumulatif', 'Penyakit'], ascending=[False, True])
+        d_dx = df_kumu_penyakit[df_kumu_penyakit[c_dx] == dx]
+        tot_notif = len(d_dx)
+        if tot_notif == 0: continue
+        is_dk = d_dx[c_br].astype(str).str.strip().str.upper() == 'DAFTAR KES'
+        is_m = d_dx[c_bt].astype(str).str.strip().str.upper() == 'MATI'
+        data_penyakit.append({'Penyakit': dx, 'Semasa': len(d_dx[(d_dx[c_me] == target_me) & is_dk]), 'Kumulatif': len(d_dx[is_dk]), 'Mati': len(d_dx[is_m]), 'Peratus': len(d_dx[is_dk])/tot_notif*100})
+    df_penyakit = pd.DataFrame(data_penyakit).sort_values(by=['Kumulatif', 'Penyakit'], ascending=[False, True]) if data_penyakit else pd.DataFrame()
 
-    # Slide 4: District
     df_district_data = []
     for d in VALID_DISTRICTS:
-        df_d = df_kumulatif[df_kumulatif[col_dt] == d]
-        jml = len(df_d)
-        counts = df_d[col_br].value_counts().to_dict()
-        d_notif = counts.get('Daftar Notifikasi', 0)
-        d_kes = counts.get('Daftar Kes', 0)
-        d_abai = counts.get('Abai Notifikasi', 0)
-        d_batal = counts.get('Batal Daftar', 0)
-        d_belum = counts.get('Belum Ambil Tindakan', 0)
-        df_district_data.append({
-            'DAERAH': d,
-            'Jumlah Notifikasi': jml,
-            'Daftar Notifikasi': d_notif,
-            'pct_notif': (d_notif / jml * 100) if jml else 0,
-            'Daftar Kes': d_kes,
-            'pct_kes': (d_kes / jml * 100) if jml else 0,
-            'Abai Notifikasi': d_abai,
-            'pct_abai': (d_abai / jml * 100) if jml else 0,
-            'Batal Daftar': d_batal,
-            'pct_batal': (d_batal / jml * 100) if jml else 0,
-            'Belum Ambil Tindakan': d_belum,
-            'pct_belum': (d_belum / jml * 100) if jml else 0
-        })
-    df_district = pd.DataFrame(df_district_data)
-    if not df_district.empty:
-        df_district = df_district.sort_values(by='Jumlah Notifikasi', ascending=False)
+        d_d = df_kumulatif[df_kumulatif[c_dt] == d]
+        jml = len(d_d)
+        c = d_d[c_br].value_counts().to_dict()
+        df_district_data.append({'DAERAH': d, 'Jumlah Notifikasi': jml, 'Daftar Notifikasi': c.get('Daftar Notifikasi',0), 'pct_notif': c.get('Daftar Notifikasi',0)/jml*100 if jml else 0, 'Daftar Kes': c.get('Daftar Kes',0), 'pct_kes': c.get('Daftar Kes',0)/jml*100 if jml else 0, 'Abai Notifikasi': c.get('Abai Notifikasi',0), 'pct_abai': c.get('Abai Notifikasi',0)/jml*100 if jml else 0, 'Batal Daftar': c.get('Batal Daftar',0), 'pct_batal': c.get('Batal Daftar',0)/jml*100 if jml else 0, 'Belum Ambil Tindakan': c.get('Belum Ambil Tindakan',0), 'pct_belum': c.get('Belum Ambil Tindakan',0)/jml*100 if jml else 0})
+    df_district = pd.DataFrame(df_district_data).sort_values(by='Jumlah Notifikasi', ascending=False) if df_district_data else pd.DataFrame()
 
-    district_names = [d[0] for d in DISTRICT_ABBR]
-
-    # Slide 5: Belum Ambil Tindakan
-    df_belum = df_clean[
-        (df_clean[col_me] == target_me) & 
-        (df_clean[col_br].astype(str).str.strip().str.upper() == 'BELUM AMBIL TINDAKAN')
-    ].copy()
-    df_belum[col_dx] = df_belum[col_dx].astype(str).str.strip().str.upper()
-    df_belum[col_dx] = df_belum[col_dx].replace({'MONKEYPOX': 'MPOX'})
-
-    if not df_belum.empty:
-        ct = pd.crosstab(df_belum[col_dx], df_belum[col_dt])
-        ct = ct.reindex(columns=district_names, fill_value=0)
+    def make_ct(cond):
+        d_sub = df_clean[cond].copy()
+        if d_sub.empty: return pd.DataFrame()
+        ct = pd.crosstab(d_sub[c_dx] if c_dx in d_sub else d_sub[c_dy], d_sub[c_dt]).reindex(columns=[x[0] for x in DISTRICT_ABBR], fill_value=0)
         ct['JUM'] = ct.sum(axis=1)
-        ct = ct[ct['JUM'] > 0]
-        ct = ct.sort_values(by=['JUM', ct.index.name or 'index'], ascending=[False, True]).reset_index()
-    else:
-        ct = pd.DataFrame(columns=[col_dx] + district_names + ['JUM'])
+        return ct[ct['JUM'] > 0].sort_values(by=['JUM', ct.index.name or 'index'], ascending=[False, True]).reset_index()
 
-    # Slide 6: Viral Hepatitis Subdiagnosis (Belum Ambil Tindakan)
-    df_hep = df_clean[
-        (df_clean[col_me] == target_me) & 
-        (df_clean[col_br].astype(str).str.strip().str.upper() == 'BELUM AMBIL TINDAKAN') &
-        (df_clean[col_dx].astype(str).str.strip().str.upper() == 'VIRAL HEPATITIS')
-    ].copy()
-    df_hep[col_dy] = df_hep[col_dy].fillna('').astype(str).str.strip()
-    df_hep[col_dy] = df_hep[col_dy].apply(lambda x: 'Tiada subdiagnosis' if x == '' or x.upper() == 'NAN' else x)
+    cond_belum = (df_clean[c_me] == target_me) & (df_clean[c_br].astype(str).str.strip().str.upper() == 'BELUM AMBIL TINDAKAN')
+    df_belum_ct = make_ct(cond_belum)
+    
+    df_clean[c_dy] = df_clean[c_dy].fillna('').astype(str).str.strip().apply(lambda x: 'Tiada subdiagnosis' if x in ['', 'NAN'] else x)
+    df_hep_ct = make_ct(cond_belum & (df_clean[c_dx] == 'VIRAL HEPATITIS'))
+    
+    cond_dn = (df_clean[c_me] == target_me) & (df_clean[c_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI')
+    df_dn_ct = make_ct(cond_dn & df_clean[c_dx].isin(inclusion_tuple))
+    df_dn_exc_ct = make_ct(cond_dn & ~df_clean[c_dx].isin(exclusion_tuple))
+    df_hep_dn_ct = make_ct(cond_dn & (df_clean[c_dx] == 'VIRAL HEPATITIS'))
 
-    if not df_hep.empty:
-        hep_ct = pd.crosstab(df_hep[col_dy], df_hep[col_dt])
-        hep_ct = hep_ct.reindex(columns=district_names, fill_value=0)
-        hep_ct['JUM'] = hep_ct.sum(axis=1)
-        hep_ct = hep_ct[hep_ct['JUM'] > 0]
-        hep_ct = hep_ct.sort_values(by=['JUM', hep_ct.index.name or 'index'], ascending=[False, True]).reset_index()
-    else:
-        hep_ct = pd.DataFrame(columns=[col_dy] + district_names + ['JUM'])
+    df_lewat = df_clean[df_clean[c_me] == target_me].copy()
+    df_lewat = df_lewat[~df_lewat[c_bp].fillna('').astype(str).str.upper().str.contains('PKD|PEJABAT')].copy()
+    
+    diff = []
+    for bc, bi in zip(df_lewat[c_bc].apply(parse_excel_date), df_lewat[c_bi].apply(parse_excel_date)):
+        diff.append((bc - bi).days if bc and bi else None)
+    df_lewat['DIFF_DAYS'] = diff
+    df_lewat['IS_SWASTA'] = df_lewat[c_cd].fillna('').astype(str).str.upper().str.contains('SWASTA')
 
-    # Slide 7: Daftar Notifikasi (Inclusion List)
-    df_dn = df_clean[
-        (df_clean[col_me] == target_me) & 
-        (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
-        (df_clean[col_dx].astype(str).str.strip().str.upper().isin(inclusion_tuple))
-    ].copy()
-    df_dn[col_dx] = df_dn[col_dx].astype(str).str.strip().str.upper()
-
-    if not df_dn.empty:
-        dn_ct = pd.crosstab(df_dn[col_dx], df_dn[col_dt])
-        dn_ct = dn_ct.reindex(columns=district_names, fill_value=0)
-        dn_ct['JUM'] = dn_ct.sum(axis=1)
-        dn_ct = dn_ct[dn_ct['JUM'] > 0]
-        dn_ct = dn_ct.sort_values(by=['JUM', dn_ct.index.name or 'index'], ascending=[False, True]).reset_index()
-    else:
-        dn_ct = pd.DataFrame(columns=[col_dx] + district_names + ['JUM'])
-
-    # Slide 8: Daftar Notifikasi (Exclusion List)
-    df_dn_exc = df_clean[
-        (df_clean[col_me] == target_me) & 
-        (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
-        (~df_clean[col_dx].astype(str).str.strip().str.upper().isin(exclusion_tuple))
-    ].copy()
-    df_dn_exc[col_dx] = df_dn_exc[col_dx].astype(str).str.strip().str.upper()
-
-    if not df_dn_exc.empty:
-        dn_exc_ct = pd.crosstab(df_dn_exc[col_dx], df_dn_exc[col_dt])
-        dn_exc_ct = dn_exc_ct.reindex(columns=district_names, fill_value=0)
-        dn_exc_ct['JUM'] = dn_exc_ct.sum(axis=1)
-        dn_exc_ct = dn_exc_ct[dn_exc_ct['JUM'] > 0]
-        dn_exc_ct = dn_exc_ct.sort_values(by=['JUM', dn_exc_ct.index.name or 'index'], ascending=[False, True]).reset_index()
-    else:
-        dn_exc_ct = pd.DataFrame(columns=[col_dx] + district_names + ['JUM'])
-
-    # Slide 9: Viral Hepatitis Subdiagnosis (Daftar Notifikasi)
-    df_hep_dn = df_clean[
-        (df_clean[col_me] == target_me) & 
-        (df_clean[col_br].astype(str).str.strip().str.upper() == 'DAFTAR NOTIFIKASI') &
-        (df_clean[col_dx].astype(str).str.strip().str.upper() == 'VIRAL HEPATITIS')
-    ].copy()
-    df_hep_dn[col_dy] = df_hep_dn[col_dy].fillna('').astype(str).str.strip()
-    df_hep_dn[col_dy] = df_hep_dn[col_dy].apply(lambda x: 'Tiada subdiagnosis' if x == '' or x.upper() == 'NAN' else x)
-
-    if not df_hep_dn.empty:
-        hep_dn_ct = pd.crosstab(df_hep_dn[col_dy], df_hep_dn[col_dt])
-        hep_dn_ct = hep_dn_ct.reindex(columns=district_names, fill_value=0)
-        hep_dn_ct['JUM'] = hep_dn_ct.sum(axis=1)
-        hep_dn_ct = hep_dn_ct[hep_dn_ct['JUM'] > 0]
-        hep_dn_ct = hep_dn_ct.sort_values(by=['JUM', hep_dn_ct.index.name or 'index'], ascending=[False, True]).reset_index()
-    else:
-        hep_dn_ct = pd.DataFrame(columns=[col_dy] + district_names + ['JUM'])
-
-    # Lewat Notifikasi (24 Jam & 7 Hari)
-    df_lewat_base = df_clean[df_clean[col_me] == target_me].copy()
-    bp_series = df_lewat_base[col_bp].fillna('').astype(str).str.upper()
-    df_lewat_base = df_lewat_base[~bp_series.str.contains('PKD|PEJABAT')].copy()
-
-    parsed_bc = df_lewat_base[col_bc].apply(parse_excel_date)
-    parsed_bi = df_lewat_base[col_bi].apply(parse_excel_date)
-
-    diff_days = []
-    for d_bc, d_bi in zip(parsed_bc, parsed_bi):
-        if d_bc and d_bi:
-            diff_days.append((d_bc - d_bi).days)
-        else:
-            diff_days.append(None)
-            
-    df_lewat_base['DIFF_DAYS'] = diff_days
-    df_lewat_base['IS_SWASTA'] = df_lewat_base[col_cd].fillna('').astype(str).str.upper().str.contains('SWASTA')
-
-    def aggregate_lewat(df_subset):
-        grouped = {}
-        for _, r in df_subset.iterrows():
-            dx = r[col_dx]
-            dt = r[col_dt]
-            is_swasta = r['IS_SWASTA']
-            if dx not in grouped:
-                grouped[dx] = {d: {'total': 0, 'swasta': 0} for d in VALID_DISTRICTS}
-            if dt in grouped[dx]:
-                grouped[dx][dt]['total'] += 1
-                if is_swasta:
-                    grouped[dx][dt]['swasta'] += 1
-
+    def agg_lewat(d_sub):
+        g = {}
+        for _, r in d_sub.iterrows():
+            dx, dt, sw = r[c_dx], r[c_dt], r['IS_SWASTA']
+            if dx not in g: g[dx] = {d: {'t':0, 's':0} for d in VALID_DISTRICTS}
+            if dt in g[dx]:
+                g[dx][dt]['t'] += 1
+                if sw: g[dx][dt]['s'] += 1
         res = []
-        for dx, dist_dict in grouped.items():
-            tot_row = sum(dist_dict[d]['total'] for d in VALID_DISTRICTS)
-            swasta_row = sum(dist_dict[d]['swasta'] for d in VALID_DISTRICTS)
-            if tot_row > 0:
-                row_dict = {'DIAGNOSIS': dx, 'TOTAL': tot_row, 'SWASTA': swasta_row}
-                for d in VALID_DISTRICTS:
-                    row_dict[f"{d}_tot"] = dist_dict[d]['total']
-                    row_dict[f"{d}_swasta"] = dist_dict[d]['swasta']
-                res.append(row_dict)
-                
-        df_res = pd.DataFrame(res)
-        if not df_res.empty:
-            df_res = df_res.sort_values(by=['TOTAL', 'DIAGNOSIS'], ascending=[False, True]).reset_index(drop=True)
-        return df_res
+        for dx, dists in g.items():
+            tot = sum(dists[d]['t'] for d in VALID_DISTRICTS)
+            if tot > 0:
+                row = {'DIAGNOSIS': dx, 'TOTAL': tot, 'SWASTA': sum(dists[d]['s'] for d in VALID_DISTRICTS)}
+                for d in VALID_DISTRICTS: row.update({f"{d}_tot": dists[d]['t'], f"{d}_swasta": dists[d]['s']})
+                res.append(row)
+        return pd.DataFrame(res).sort_values(by=['TOTAL', 'DIAGNOSIS'], ascending=[False, True]).reset_index(drop=True) if res else pd.DataFrame()
 
-    df_24h = df_lewat_base[
-        df_lewat_base[col_dx].isin(DIAG_TEMPOH_24H) & 
-        (df_lewat_base['DIFF_DAYS'] > 2)
-    ].copy()
-    lewat_24h_df = aggregate_lewat(df_24h)
+    df_24h_raw = df_lewat[df_lewat[c_dx].isin(DIAG_TEMPOH_24H) & (df_lewat['DIFF_DAYS'] > 2)]
+    df_7d_raw = df_lewat[df_lewat[c_dx].isin(DIAG_TEMPOH_7D) & (df_lewat['DIFF_DAYS'] > 7)]
 
-    df_7d = df_lewat_base[
-        df_lewat_base[col_dx].isin(DIAG_TEMPOH_7D) & 
-        (df_lewat_base['DIFF_DAYS'] > 7)
-    ].copy()
-    lewat_7d_df = aggregate_lewat(df_7d)
-
-    # Fetch wabak and bencana Google Sheet data
-    df_wabak = fetch_wabak_data()
-    df_bencana = fetch_bencana_data()
-
-    return (
-        len(df), stats_semasa, stats_kumulatif, df_penyakit, 
-        df_district, ct, hep_ct, dn_ct, dn_exc_ct, hep_dn_ct,
-        lewat_24h_df, lewat_7d_df, df_24h, df_7d, df_wabak, df_bencana
-    )
+    return (len(df), stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, agg_lewat(df_24h_raw), agg_lewat(df_7d_raw), df_24h_raw, df_7d_raw, fetch_wabak_data(), fetch_bencana_data(), fetch_graf_data())
 
 def generate_lewat_excel(df_24h, df_7d):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_24h.to_excel(writer, sheet_name='Lewat 24 Jam', index=False)
-        df_7d.to_excel(writer, sheet_name='Lewat 7 Hari', index=False)
-    output.seek(0)
-    return output
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine='openpyxl') as w:
+        df_24h.to_excel(w, sheet_name='Lewat 24 Jam', index=False)
+        df_7d.to_excel(w, sheet_name='Lewat 7 Hari', index=False)
+    out.seek(0)
+    return out
 
 # ---------------------------------------------------------
-# PPTX Generator
+# Presentation Generator
 # ---------------------------------------------------------
 @st.cache_data
-def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_wabak, df_bencana, epi_week, year):
+def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_wabak, df_bencana, df_graf, epi_week, year):
     try:
-        remote_buffer = fetch_google_slides_pptx(GOOGLE_SLIDES_ID)
-        prs = Presentation(remote_buffer)
-    except Exception as e:
-        st.warning(f"Could not fetch Google Slides directly: {e}. Generating standalone slides.")
+        prs = Presentation(fetch_google_slides_pptx(GOOGLE_SLIDES_ID))
+    except:
         prs = Presentation()
-        prs.slide_width = Inches(13.333)
-        prs.slide_height = Inches(7.5)
+        prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
 
     for slide in prs.slides:
         for shape in slide.shapes:
@@ -553,1018 +349,319 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 for row in shape.table.rows:
                     for cell in row.cells:
                         cell.vertical_anchor = MSO_ANCHOR.MIDDLE 
-                        for paragraph in cell.text_frame.paragraphs:
-                            paragraph.alignment = PP_ALIGN.CENTER
-                            for run in paragraph.runs:
-                                run.font.size = Pt(11)
+                        for p in cell.text_frame.paragraphs:
+                            p.alignment = PP_ALIGN.CENTER
+                            for run in p.runs: run.font.size = Pt(11)
+
+    def add_bottom_banner(sl):
+        b = sl.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
+        b.fill.solid(); b.fill.fore_color.rgb = NAVY; b.line.fill.background()
+        p = b.text_frame.paragraphs[0]
+        p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
+        p.font.size, p.font.color.rgb, p.alignment, p.font.name, p.font.bold = Pt(9), RGBColor(255,255,255), PP_ALIGN.RIGHT, 'Calibri', True
+        b.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+
+    def add_slide_header(sl, t1, t2):
+        if os.path.exists("logo.png"): sl.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
+        l = sl.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
+        l.fill.solid(); l.fill.fore_color.rgb = NAVY; l.line.fill.background()
+        tb = sl.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(10), Inches(0.9))
+        p = tb.text_frame.paragraphs[0]
+        p.text = t1; p.font.size, p.font.bold, p.font.color.rgb = Pt(28) if "Senarai" in t1 or "Bilangan" in t1 else Pt(36), True, NAVY
+        p2 = tb.text_frame.add_paragraph()
+        p2.text = t2; p2.font.size, p2.font.bold, p2.font.color.rgb = Pt(14) if "Tempoh" in t2 else Pt(16), True, NAVY
 
     # --- Slide 1: Title Slide ---
+    slide1 = prs.slides[0] if len(prs.slides) > 0 else prs.slides.add_slide(prs.slide_layouts[6])
     if len(prs.slides) > 0:
-        slide1 = prs.slides[0]
-        for shape in list(slide1.shapes):
-            sp = shape._element
-            sp.getparent().remove(sp)
-    else:
-        slide1 = prs.slides.add_slide(prs.slide_layouts[6])
-
-    slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.2), Inches(0.2), Inches(2.2), Inches(0.25)).fill.solid()
-    slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
-    slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.2), Inches(0.2), Inches(0.25), Inches(1.8)).fill.solid()
-    slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
-    slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(10.933), Inches(0.2), Inches(2.2), Inches(0.25)).fill.solid()
-    slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
-    slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(12.883), Inches(0.2), Inches(0.25), Inches(1.8)).fill.solid()
-    slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
-    slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.2), Inches(7.05), Inches(2.2), Inches(0.25)).fill.solid()
-    slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
-    slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.2), Inches(5.5), Inches(0.25), Inches(1.8)).fill.solid()
-    slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
-    slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(10.933), Inches(7.05), Inches(2.2), Inches(0.25)).fill.solid()
-    slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
-    slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(12.883), Inches(5.5), Inches(0.25), Inches(1.8)).fill.solid()
-    slide1.shapes[-1].fill.fore_color.rgb = NAVY; slide1.shapes[-1].line.fill.background()
+        for shape in list(slide1.shapes): shape._element.getparent().remove(shape._element)
+    
+    for x, y, w, h in [(0.2,0.2,2.2,0.25), (0.2,0.2,0.25,1.8), (10.933,0.2,2.2,0.25), (12.883,0.2,0.25,1.8), (0.2,7.05,2.2,0.25), (0.2,5.5,0.25,1.8), (10.933,7.05,2.2,0.25), (12.883,5.5,0.25,1.8)]:
+        s = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
+        s.fill.solid(); s.fill.fore_color.rgb = NAVY; s.line.fill.background()
 
     card = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.42), Inches(0.42), Inches(12.493), Inches(6.66))
     card.fill.solid(); card.fill.fore_color.rgb = RGBColor(255, 255, 255)
     card.line.color.rgb = RGBColor(210, 210, 210); card.line.width = Pt(1.5)
 
-    if os.path.exists("logo.png"):
-        slide1.shapes.add_picture("logo.png", Inches(5.66), Inches(0.85), width=Inches(2.0))
+    if os.path.exists("logo.png"): slide1.shapes.add_picture("logo.png", Inches(5.66), Inches(0.85), width=Inches(2.0))
 
-    txBox = slide1.shapes.add_textbox(Inches(1.5), Inches(2.85), Inches(10.333), Inches(1.2))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Selangor Epidemiology Review"; p.font.size = Pt(50); p.font.bold = True
-    p.font.name = 'Calibri'; p.font.color.rgb = NAVY; p.alignment = PP_ALIGN.CENTER
+    tb = slide1.shapes.add_textbox(Inches(1.5), Inches(2.85), Inches(10.333), Inches(1.2))
+    p = tb.text_frame.paragraphs[0]
+    p.text = "Selangor Epidemiology Review"; p.font.size, p.font.bold, p.font.name, p.font.color.rgb, p.alignment = Pt(50), True, 'Calibri', NAVY, PP_ALIGN.CENTER
+    
+    l = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(5.916), Inches(4.05), Inches(1.5), Inches(0.03))
+    l.fill.solid(); l.fill.fore_color.rgb = RGBColor(200, 200, 200); l.line.fill.background()
 
-    line = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(5.916), Inches(4.05), Inches(1.5), Inches(0.03))
-    line.fill.solid(); line.fill.fore_color.rgb = RGBColor(200, 200, 200); line.line.fill.background()
-
-    txBox2 = slide1.shapes.add_textbox(Inches(1.5), Inches(4.25), Inches(10.333), Inches(0.8))
-    p2 = txBox2.text_frame.paragraphs[0]
-    p2.text = f"ME {epi_week:02d} / {year}"; p2.font.size = Pt(28); p2.font.bold = True
-    p2.font.name = 'Calibri'; p2.font.color.rgb = NAVY; p2.alignment = PP_ALIGN.CENTER
-
-    if os.path.exists("qr.png"):
-        slide1.shapes.add_picture("qr.png", Inches(10.35), Inches(4.55), width=Inches(2.2))
+    tb2 = slide1.shapes.add_textbox(Inches(1.5), Inches(4.25), Inches(10.333), Inches(0.8))
+    p2 = tb2.text_frame.paragraphs[0]
+    p2.text = f"ME {epi_week:02d} / {year}"; p2.font.size, p2.font.bold, p2.font.name, p2.font.color.rgb, p2.alignment = Pt(28), True, 'Calibri', NAVY, PP_ALIGN.CENTER
 
     # --- Slide 2: Analisa e-Notifikasi ---
-    slide_notif = prs.slides.add_slide(prs.slide_layouts[6])
-    if os.path.exists("logo.png"):
-        slide_notif.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-    line = slide_notif.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
-
-    txBox = slide_notif.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(8), Inches(0.8))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Analisa e-Notifikasi"
-    p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
-    p2 = txBox.text_frame.add_paragraph()
-    p2.text = f"ME {epi_week:02d} /{year}"
-    p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
-
-    rows, cols = 7, 5
-    table_shape = slide_notif.shapes.add_table(rows, cols, Inches(1.15), Inches(1.7), Inches(11.0), Inches(4.7))
-    table = table_shape.table
-    for c in range(5):
-        table.columns[c].width = Inches(2.2)
-
-    headers = ["Minggu Epid", f"ME {epi_week:02d} (Semasa)", "", f"Kumulatif Sehingga ME {epi_week:02d}", ""]
-    for i, txt in enumerate(headers):
-        write_cell(table.cell(0, i), txt, bold=True, size=17) 
-    table.cell(0, 1).merge(table.cell(0, 2))
-    table.cell(0, 3).merge(table.cell(0, 4))
-
-    row_labels = ["", "Jumlah Notifikasi", "Daftar Notifikasi", "Daftar Kes", "Abai Notifikasi", "Belum Ambil Tindakan", "Batal Daftar"]
-    for i in range(1, 7):
-        write_cell(table.cell(i, 0), row_labels[i], bold=True, size=17) 
-
-    write_cell(table.cell(1, 1), f"{stats_semasa['total']:,}", bold=True, size=17)
-    write_cell(table.cell(1, 3), f"{stats_kumulatif['total']:,}", bold=True, size=17)
-    write_cell(table.cell(2, 1), f"{stats_semasa['daftar_notifikasi']:,}", bold=True, size=17)
-    write_cell(table.cell(2, 2), stats_semasa['pct_daftar_notif'], bold=True, size=17)
-    write_cell(table.cell(2, 3), f"{stats_kumulatif['daftar_notifikasi']:,}", bold=True, size=17)
-    write_cell(table.cell(2, 4), stats_kumulatif['pct_daftar_notif'], bold=True, size=17)
-    write_cell(table.cell(3, 1), f"{stats_semasa['daftar_kes']:,}", bold=True, size=17)
-    write_cell(table.cell(3, 2), stats_semasa['pct_daftar_kes'], bold=True, size=17)
-    write_cell(table.cell(3, 3), f"{stats_kumulatif['daftar_kes']:,}", bold=True, size=17)
-    write_cell(table.cell(3, 4), stats_kumulatif['pct_daftar_kes'], bold=True, size=17)
-    write_cell(table.cell(4, 1), f"{stats_semasa['abai']:,}", bold=True, size=17)
-    write_cell(table.cell(4, 2), stats_semasa['pct_abai'], bold=True, size=17)
-    write_cell(table.cell(4, 3), f"{stats_kumulatif['abai']:,}", bold=True, size=17)
-    write_cell(table.cell(4, 4), stats_kumulatif['pct_abai'], bold=True, size=17)
-    write_cell(table.cell(5, 1), f"{stats_semasa['belum']:,}", bold=True, size=17)
-    write_cell(table.cell(5, 2), stats_semasa['pct_belum'], bold=True, size=17)
-    write_cell(table.cell(5, 3), f"{stats_kumulatif['belum']:,}", bold=True, size=17)
-    write_cell(table.cell(5, 4), stats_kumulatif['pct_belum'], bold=True, size=17)
-    write_cell(table.cell(6, 1), f"{stats_semasa['batal']:,}", bold=True, size=17)
-    write_cell(table.cell(6, 2), stats_semasa['pct_batal'], bold=True, size=17)
-    write_cell(table.cell(6, 3), f"{stats_kumulatif['batal']:,}", bold=True, size=17)
-    write_cell(table.cell(6, 4), stats_kumulatif['pct_batal'], bold=True, size=17)
-
-    for i, row in enumerate(table.rows):
+    s2 = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(s2, "Analisa e-Notifikasi", f"ME {epi_week:02d} /{year}")
+    tb = s2.shapes.add_table(7, 5, Inches(1.15), Inches(1.7), Inches(11.0), Inches(4.7)).table
+    for c in range(5): tb.columns[c].width = Inches(2.2)
+    for i, txt in enumerate(["Minggu Epid", f"ME {epi_week:02d} (Semasa)", "", f"Kumulatif Sehingga ME {epi_week:02d}", ""]): write_cell(tb.cell(0, i), txt, size=17) 
+    tb.cell(0, 1).merge(tb.cell(0, 2)); tb.cell(0, 3).merge(tb.cell(0, 4))
+    for i, l in enumerate(["", "Jumlah Notifikasi", "Daftar Notifikasi", "Daftar Kes", "Abai Notifikasi", "Belum Ambil Tindakan", "Batal Daftar"]): write_cell(tb.cell(i, 0), l, size=17) if i>0 else None
+    
+    write_cell(tb.cell(1, 1), f"{stats_semasa['total']:,}", size=17); write_cell(tb.cell(1, 3), f"{stats_kumulatif['total']:,}", size=17)
+    for r, k in enumerate(['daftar_notifikasi', 'daftar_kes', 'abai', 'belum', 'batal'], 2):
+        write_cell(tb.cell(r, 1), f"{stats_semasa[k]:,}", size=17); write_cell(tb.cell(r, 2), stats_semasa[f'pct_{k}' if k in ['abai','belum','batal'] else f'pct_{k}'], size=17)
+        write_cell(tb.cell(r, 3), f"{stats_kumulatif[k]:,}", size=17); write_cell(tb.cell(r, 4), stats_kumulatif[f'pct_{k}' if k in ['abai','belum','batal'] else f'pct_{k}'], size=17)
+    
+    for i, row in enumerate(tb.rows):
         for j, cell in enumerate(row.cells):
-            set_cell_border(cell, NAVY)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE 
-            if i == 0 or j == 0:
-                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-            else:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
-            if i == 1 and j in [2, 4]:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(0, 0, 0)
-                
-    myt_zone = datetime.timezone(datetime.timedelta(hours=8))
-    now = datetime.datetime.now(myt_zone)
-    timestamp_str = now.strftime("%d/%m/%Y @ %I.%M%p").upper()
+            set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE 
+            if i==0 or j==0: cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
+            else: cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(0,0,0) if i==1 and j in [2,4] else RGBColor(255,255,255)
     
-    txBox = slide_notif.shapes.add_textbox(Inches(0.1), Inches(6.9), Inches(10), Inches(0.4))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = f"(Sumber : Sistem e-notifikasi, KKM muat turun pada ({timestamp_str}))"
-    p.font.size = Pt(9); p.font.italic = True; p.font.name = 'Calibri'; p.font.bold = True
+    timestamp = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).strftime("%d/%m/%Y @ %I.%M%p").upper()
+    t_box = s2.shapes.add_textbox(Inches(0.1), Inches(6.9), Inches(10), Inches(0.4)).text_frame.paragraphs[0]
+    t_box.text = f"(Sumber : Sistem e-notifikasi, KKM muat turun pada ({timestamp}))"; t_box.font.size, t_box.font.italic, t_box.font.bold = Pt(9), True, True
+    add_bottom_banner(s2)
+
+    # --- Slide 3: Bilangan Daftar Kes ---
+    s3 = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(s3, "Bilangan Daftar Kes Mengikut Penyakit", f"ME {epi_week:02d} / {year}")
+    df_r = df_penyakit.head(19) if not df_penyakit.empty and len(df_penyakit)>19 else df_penyakit
+    tb3 = s3.shapes.add_table(len(df_r)+2, 4, Inches(0.8), Inches(1.5), Inches(11.733), Inches(5.0)).table
+    tb3.columns[0].width, tb3.columns[1].width, tb3.columns[2].width, tb3.columns[3].width = Inches(3.2), Inches(2.2), Inches(2.7), Inches(3.633)
     
-    bottom_banner = slide_notif.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.8), Inches(6.833), Inches(0.5))
-    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-    p = bottom_banner.text_frame.paragraphs[0]
-    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE 
+    for j, h in enumerate(["Penyakit", f"ME {epi_week:02d}", f"≤ ME {epi_week:02d}/ {year}", "Peratus Daftar Kes\n(Bil Daftar Kes / Bil Notifikasi Kes Tersebut)"]): write_cell(tb3.cell(0, j), h)
+    for i, (_, r) in enumerate(df_r.iterrows()):
+        r_i = i + 1
+        write_cell(tb3.cell(r_i, 0), str(r['Penyakit']), align_left=True); write_cell(tb3.cell(r_i, 1), f"{int(r['Semasa']):,}")
+        p = write_cell(tb3.cell(r_i, 2), f"{int(r['Kumulatif']):,}")
+        if r['Mati'] > 0: run=p.add_run(); run.text=f" ({int(r['Mati'])})"; run.font.color.rgb=RGBColor(255,0,0); run.font.size=Pt(10); run.font.bold=True
+        write_cell(tb3.cell(r_i, 3), f"{int(r['Peratus'])}%") 
+    
+    r_i = len(tb3.rows)-1
+    write_cell(tb3.cell(r_i, 0), "JUMLAH"); write_cell(tb3.cell(r_i, 1), f"{int(df_penyakit['Semasa'].sum() if not df_penyakit.empty else 0):,}")
+    p = write_cell(tb3.cell(r_i, 2), f"{int(df_penyakit['Kumulatif'].sum() if not df_penyakit.empty else 0):,}")
+    if (m:=df_penyakit['Mati'].sum() if not df_penyakit.empty else 0) > 0: run=p.add_run(); run.text=f" ({int(m)})"; run.font.color.rgb=RGBColor(255,0,0); run.font.size=Pt(10); run.font.bold=True
+    
+    for i, row in enumerate(tb3.rows):
+        for j, cell in enumerate(row.cells):
+            set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i==0 or i==len(tb3.rows)-1 else RGBColor(255,255,255)
 
-    # --- Slide 3: Bilangan Daftar Kes Mengikut Penyakit ---
-    slide_penyakit = prs.slides.add_slide(prs.slide_layouts[6])
-    if os.path.exists("logo.png"):
-        slide_penyakit.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-    line = slide_penyakit.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
+    tf3 = s3.shapes.add_textbox(Inches(0.8), Inches(6.9), Inches(6), Inches(0.4)).text_frame
+    tf3.paragraphs[0].text = "Sumber data adalah daripada sistem eNotifikasi"; tf3.paragraphs[0].font.size, tf3.paragraphs[0].font.bold = Pt(9), True
+    p2 = tf3.add_paragraph(); p2.text = "*(Mati)"; p2.font.size, p2.font.bold, p2.font.color.rgb = Pt(9), True, RGBColor(255,0,0)
+    add_bottom_banner(s3)
 
-    txBox = slide_penyakit.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(8), Inches(0.8))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Bilangan Daftar Kes Mengikut Penyakit"
-    p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
-    p2 = txBox.text_frame.add_paragraph()
-    p2.text = f"ME {epi_week:02d} / {year}"
-    p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
+    # --- Slide 4: Daerah ---
+    s4 = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(s4, "Status pencapaian e-Notifikasi", f"Sehingga ME {epi_week:02d} / {year}")
+    tb4 = s4.shapes.add_table(len(df_district)+2, 12, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0)).table
+    for j, w in enumerate([1.4, 1.1, 1.0, 0.85, 0.95, 0.85, 1.0, 0.85, 0.95, 0.85, 1.0, 0.85]): tb4.columns[j].width = Inches(w)
+    
+    for j, h in enumerate(["DAERAH", "Jumlah\nNotifikasi", "Daftar\nNotifikasi", "%", "Daftar Kes", "%", "Abai\nNotifikasi", "%", "Batal Daftar", "%", "Belum\nAmbil\nTindakan", "%"]): write_cell(tb4.cell(0, j), h)
+    
+    for i, (_, r) in enumerate(df_district.iterrows()):
+        ri = i + 1
+        write_cell(tb4.cell(ri, 0), str(r['DAERAH']))
+        for j, k in enumerate(['Jumlah Notifikasi', 'Daftar Notifikasi', 'pct_notif', 'Daftar Kes', 'pct_kes', 'Abai Notifikasi', 'pct_abai', 'Batal Daftar', 'pct_batal', 'Belum Ambil Tindakan', 'pct_belum'], 1):
+            write_cell(tb4.cell(ri, j), f"{r[k]:.2f}%" if 'pct' in k else f"{int(r[k]):,}")
 
-    total_semasa = df_penyakit['Semasa'].sum() if not df_penyakit.empty else 0
-    total_kumulatif = df_penyakit['Kumulatif'].sum() if not df_penyakit.empty else 0
-    total_mati = df_penyakit['Mati'].sum() if not df_penyakit.empty else 0
-    df_render = df_penyakit.head(19) if len(df_penyakit) > 19 else df_penyakit
-
-    rows = len(df_render) + 2
-    cols = 4
-    table_shape = slide_penyakit.shapes.add_table(rows, cols, Inches(0.8), Inches(1.5), Inches(11.733), Inches(5.0))
-    table = table_shape.table
-    table.columns[0].width = Inches(3.2)
-    table.columns[1].width = Inches(2.2)
-    table.columns[2].width = Inches(2.7)
-    table.columns[3].width = Inches(3.633)
-
-    headers = ["Penyakit", f"ME {epi_week:02d}", f"≤ ME {epi_week:02d}/ {year}", "Peratus Daftar Kes\n(Bil Daftar Kes / Bil Notifikasi Kes Tersebut)"]
-    for j, h in enumerate(headers):
-        write_cell(table.cell(0, j), h, bold=True)
-
-    for i, (_, row) in enumerate(df_render.iterrows()):
-        r_idx = i + 1
-        write_cell(table.cell(r_idx, 0), str(row['Penyakit']), bold=True, align_left=True) 
-        write_cell(table.cell(r_idx, 1), f"{int(row['Semasa']):,}", bold=True) 
-        p = write_cell(table.cell(r_idx, 2), f"{int(row['Kumulatif']):,}", bold=True) 
-        if row['Mati'] > 0:
-            run = p.add_run()
-            run.text = f" ({int(row['Mati'])})"
-            run.font.color.rgb = RGBColor(255, 0, 0)
-            run.font.bold = True; run.font.size = Pt(10); run.font.name = 'Calibri'
-        write_cell(table.cell(r_idx, 3), f"{int(row['Peratus'])}%", bold=True) 
+    ri = len(tb4.rows)-1
+    tj = df_district['Jumlah Notifikasi'].sum() if not df_district.empty else 0
+    write_cell(tb4.cell(ri, 0), "JUMLAH"); write_cell(tb4.cell(ri, 1), f"{int(tj):,}")
+    for j, k in zip(range(2, 12, 2), ['Daftar Notifikasi', 'Daftar Kes', 'Abai Notifikasi', 'Batal Daftar', 'Belum Ambil Tindakan']):
+        tv = df_district[k].sum() if not df_district.empty else 0
+        write_cell(tb4.cell(ri, j), f"{int(tv):,}"); write_cell(tb4.cell(ri, j+1), f"{(tv/tj*100):.2f}%" if tj else "0.00%")
         
-    r_idx = rows - 1
-    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True) 
-    write_cell(table.cell(r_idx, 1), f"{int(total_semasa):,}", bold=True)
-    p = write_cell(table.cell(r_idx, 2), f"{int(total_kumulatif):,}", bold=True)
-    if total_mati > 0:
-        run = p.add_run()
-        run.text = f" ({int(total_mati)})"
-        run.font.color.rgb = RGBColor(255, 0, 0)
-        run.font.bold = True; run.font.size = Pt(10); run.font.name = 'Calibri'
-    write_cell(table.cell(r_idx, 3), "", bold=True)
-
-    for i, row in enumerate(table.rows):
+    for i, row in enumerate(tb4.rows):
         for j, cell in enumerate(row.cells):
-            set_cell_border(cell, NAVY)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i == 0 or i == len(table.rows) - 1:
-                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-            else:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
-
-    txBox = slide_penyakit.shapes.add_textbox(Inches(0.8), Inches(6.9), Inches(6), Inches(0.4))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Sumber data adalah daripada sistem eNotifikasi"
-    p.font.size = Pt(9); p.font.bold = True; p.font.name = 'Calibri'; p.font.color.rgb = RGBColor(0, 0, 0) 
-    p2 = txBox.text_frame.add_paragraph()
-    p2.text = "*(Mati)"
-    p2.font.size = Pt(9); p.font.bold = True; p.font.color.rgb = RGBColor(255, 0, 0); p2.font.name = 'Calibri' 
-    
-    bottom_banner = slide_penyakit.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
-    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-    p = bottom_banner.text_frame.paragraphs[0]
-    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE 
-
-    # --- Slide 4: Status pencapaian e-Notifikasi Mengikut Daerah ---
-    slide_daerah = prs.slides.add_slide(prs.slide_layouts[6])
-    if os.path.exists("logo.png"):
-        slide_daerah.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-    line = slide_daerah.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
-
-    txBox = slide_daerah.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(8), Inches(0.8))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Status pencapaian e-Notifikasi"
-    p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
-    p2 = txBox.text_frame.add_paragraph()
-    p2.text = f"Sehingga ME {epi_week:02d} / {year}"
-    p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
-
-    rows = len(df_district) + 2
-    cols = 12
-    table_shape = slide_daerah.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0))
-    table = table_shape.table
-    col_widths = [Inches(1.4), Inches(1.1), Inches(1.0), Inches(0.85), Inches(0.95), Inches(0.85), Inches(1.0), Inches(0.85), Inches(0.95), Inches(0.85), Inches(1.0), Inches(0.85)]
-    for j, w in enumerate(col_widths):
-        table.columns[j].width = w
-
-    headers = ["DAERAH", "Jumlah\nNotifikasi", "Daftar\nNotifikasi", "%", "Daftar Kes", "%", "Abai\nNotifikasi", "%", "Batal Daftar", "%", "Belum\nAmbil\nTindakan", "%"]
-    for j, h in enumerate(headers):
-        write_cell(table.cell(0, j), h, bold=True, size=12)
-
-    tot_jml = df_district['Jumlah Notifikasi'].sum() if not df_district.empty else 0
-    tot_notif = df_district['Daftar Notifikasi'].sum() if not df_district.empty else 0
-    tot_kes = df_district['Daftar Kes'].sum() if not df_district.empty else 0
-    tot_abai = df_district['Abai Notifikasi'].sum() if not df_district.empty else 0
-    tot_batal = df_district['Batal Daftar'].sum() if not df_district.empty else 0
-    tot_belum = df_district['Belum Ambil Tindakan'].sum() if not df_district.empty else 0
-
-    for i, (_, row) in enumerate(df_district.iterrows()):
-        r_idx = i + 1
-        write_cell(table.cell(r_idx, 0), str(row['DAERAH']), bold=True, size=12)
-        write_cell(table.cell(r_idx, 1), f"{int(row['Jumlah Notifikasi']):,}", bold=True, size=12)
-        write_cell(table.cell(r_idx, 2), f"{int(row['Daftar Notifikasi']):,}", bold=True, size=12)
-        write_cell(table.cell(r_idx, 3), f"{row['pct_notif']:.2f}%", bold=True, size=12)
-        write_cell(table.cell(r_idx, 4), f"{int(row['Daftar Kes']):,}", bold=True, size=12)
-        write_cell(table.cell(r_idx, 5), f"{row['pct_kes']:.2f}%", bold=True, size=12)
-        write_cell(table.cell(r_idx, 6), f"{int(row['Abai Notifikasi']):,}", bold=True, size=12)
-        write_cell(table.cell(r_idx, 7), f"{row['pct_abai']:.2f}%", bold=True, size=12)
-        write_cell(table.cell(r_idx, 8), f"{int(row['Batal Daftar']):,}", bold=True, size=12)
-        write_cell(table.cell(r_idx, 9), f"{row['pct_batal']:.2f}%", bold=True, size=12)
-        write_cell(table.cell(r_idx, 10), f"{int(row['Belum Ambil Tindakan']):,}", bold=True, size=12)
-        write_cell(table.cell(r_idx, 11), f"{row['pct_belum']:.2f}%", bold=True, size=12)
-
-    r_idx = rows - 1
-    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=12)
-    write_cell(table.cell(r_idx, 1), f"{int(tot_jml):,}", bold=True, size=12)
-    write_cell(table.cell(r_idx, 2), f"{int(tot_notif):,}", bold=True, size=12)
-    write_cell(table.cell(r_idx, 3), f"{(tot_notif/tot_jml*100):.2f}%" if tot_jml else "0.00%", bold=True, size=12)
-    write_cell(table.cell(r_idx, 4), f"{int(tot_kes):,}", bold=True, size=12)
-    write_cell(table.cell(r_idx, 5), f"{(tot_kes/tot_jml*100):.2f}%" if tot_jml else "0.00%", bold=True, size=12)
-    write_cell(table.cell(r_idx, 6), f"{int(tot_abai):,}", bold=True, size=12)
-    write_cell(table.cell(r_idx, 7), f"{(tot_abai/tot_jml*100):.2f}%" if tot_jml else "0.00%", bold=True, size=12)
-    write_cell(table.cell(r_idx, 8), f"{int(tot_batal):,}", bold=True, size=12)
-    write_cell(table.cell(r_idx, 9), f"{(tot_batal/tot_jml*100):.2f}%" if tot_jml else "0.00%", bold=True, size=12)
-    write_cell(table.cell(r_idx, 10), f"{int(tot_belum):,}", bold=True, size=12)
-    write_cell(table.cell(r_idx, 11), f"{(tot_belum/tot_jml*100):.2f}%" if tot_jml else "0.00%", bold=True, size=12)
-
-    for i, row in enumerate(table.rows):
-        for j, cell in enumerate(row.cells):
-            set_cell_border(cell, NAVY)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i == 0 or j == 0 or i == len(table.rows) - 1:
-                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-            else:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
-
-    bottom_banner = slide_daerah.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
-    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-    p = bottom_banner.text_frame.paragraphs[0]
-    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE 
-
-    # --- Slide 5: Senarai Kes Belum Ambil Tindakan Mengikut Diagnosis ---
-    slide_belum = prs.slides.add_slide(prs.slide_layouts[6])
-    if os.path.exists("logo.png"):
-        slide_belum.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-    line = slide_belum.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
-
-    txBox = slide_belum.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(9.5), Inches(0.8))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Senarai Kes Belum Ambil Tindakan Mengikut Diagnosis"
-    p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-    p2 = txBox.text_frame.add_paragraph()
-    p2.text = f"ME {epi_week:02d} / {year}"
-    p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
-
-    rows = len(df_belum_ct) + 3
-    cols = 11
-    table_shape = slide_belum.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0))
-    table = table_shape.table
-    table.columns[0].width = Inches(2.333)
-    for j in range(1, 11):
-        table.columns[j].width = Inches(1.0)
-
-    h0 = ["DIAGNOSIS"] + [d[1] for d in DISTRICT_ABBR] + ["JUM"]
-    for j, txt in enumerate(h0):
-        write_cell(table.cell(0, j), txt, bold=True, size=16)
-    h1 = [""] + [f"ME{epi_week:02d}"] * 10
-    for j, txt in enumerate(h1):
-        if j > 0:
-            write_cell(table.cell(1, j), txt, bold=True, size=16)
-
-    table.cell(0, 0).merge(table.cell(1, 0))
-    write_cell(table.cell(0, 0), "DIAGNOSIS", bold=True, size=16)
-
-    district_names = [d[0] for d in DISTRICT_ABBR]
-    district_sums = {d: 0 for d in district_names}
-    total_jum = 0
-    col_dx_name = df_belum_ct.columns[0] if not df_belum_ct.empty else 'DIAGNOSIS'
-
-    for i, (_, row) in enumerate(df_belum_ct.iterrows()):
-        r_idx = i + 2
-        write_cell(table.cell(r_idx, 0), str(row[col_dx_name]), bold=True, align_left=True, size=16)
-        row_jum = 0
-        for j, d_name in enumerate(district_names):
-            val = int(row[d_name]) if d_name in row else 0
-            write_cell(table.cell(r_idx, j + 1), str(val), bold=True, size=16)
-            district_sums[d_name] += val
-            row_jum += val
-        jum_val = int(row['JUM']) if 'JUM' in row else row_jum
-        write_cell(table.cell(r_idx, 10), str(jum_val), bold=True, size=16)
-        total_jum += jum_val
-
-    r_idx = rows - 1
-    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=16)
-    for j, d_name in enumerate(district_names):
-        write_cell(table.cell(r_idx, j + 1), str(district_sums[d_name]), bold=True, size=16)
-    write_cell(table.cell(r_idx, 10), str(total_jum), bold=True, size=16)
-
-    for i, row in enumerate(table.rows):
-        for j, cell in enumerate(row.cells):
-            set_cell_border(cell, NAVY)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i in [0, 1] or j == 0 or i == len(table.rows) - 1:
-                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-            else:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
-
-    bottom_banner = slide_belum.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
-    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-    p = bottom_banner.text_frame.paragraphs[0]
-    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-    # --- Slide 6: Viral Hepatitis Subdiagnosis Belum Ambil Tindakan ---
-    slide_hep = prs.slides.add_slide(prs.slide_layouts[6])
-    if os.path.exists("logo.png"):
-        slide_hep.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-    line = slide_hep.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
-
-    txBox = slide_hep.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(9.5), Inches(0.8))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Senarai Kes Belum Ambil Tindakan Mengikut Diagnosis"
-    p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-    p2 = txBox.text_frame.add_paragraph()
-    p2.text = f"ME {epi_week:02d} / {year}"
-    p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
-
-    rows = len(df_hep_ct) + 3
-    cols = 11
-    table_shape = slide_hep.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0))
-    table = table_shape.table
-    table.columns[0].width = Inches(2.333)
-    for j in range(1, 11):
-        table.columns[j].width = Inches(1.0)
-
-    for j, txt in enumerate(h0):
-        write_cell(table.cell(0, j), txt, bold=True, size=16)
-    for j, txt in enumerate(h1):
-        if j > 0:
-            write_cell(table.cell(1, j), txt, bold=True, size=16)
-
-    table.cell(0, 0).merge(table.cell(1, 0))
-    write_cell(table.cell(0, 0), "DIAGNOSIS", bold=True, size=16)
-
-    district_sums = {d: 0 for d in district_names}
-    total_jum = 0
-    col_subdx_name = df_hep_ct.columns[0] if not df_hep_ct.empty else 'DIAGNOSIS'
-
-    for i, (_, row) in enumerate(df_hep_ct.iterrows()):
-        r_idx = i + 2
-        write_cell(table.cell(r_idx, 0), str(row[col_subdx_name]), bold=True, align_left=True, size=16)
-        row_jum = 0
-        for j, d_name in enumerate(district_names):
-            val = int(row[d_name]) if d_name in row else 0
-            write_cell(table.cell(r_idx, j + 1), str(val), bold=True, size=16)
-            district_sums[d_name] += val
-            row_jum += val
-        jum_val = int(row['JUM']) if 'JUM' in row else row_jum
-        write_cell(table.cell(r_idx, 10), str(jum_val), bold=True, size=16)
-        total_jum += jum_val
-
-    r_idx = rows - 1
-    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=16)
-    for j, d_name in enumerate(district_names):
-        write_cell(table.cell(r_idx, j + 1), str(district_sums[d_name]), bold=True, size=16)
-    write_cell(table.cell(r_idx, 10), str(total_jum), bold=True, size=16)
-
-    for i, row in enumerate(table.rows):
-        for j, cell in enumerate(row.cells):
-            set_cell_border(cell, NAVY)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i in [0, 1] or j == 0 or i == len(table.rows) - 1:
-                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-            else:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
-
-    bottom_banner = slide_hep.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
-    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-    p = bottom_banner.text_frame.paragraphs[0]
-    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-    # --- Slide 7: Bilangan Kes Yang Masih Berstatus Daftar Notifikasi (Inclusion List) ---
-    slide_dn = prs.slides.add_slide(prs.slide_layouts[6])
-    if os.path.exists("logo.png"):
-        slide_dn.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-    line = slide_dn.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
-
-    txBox = slide_dn.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(9.5), Inches(0.9))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Bilangan Kes Yang Masih Berstatus Daftar Notifikasi"
-    p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-    p2 = txBox.text_frame.add_paragraph()
-    p2.text = f"Tempoh daftar kes ≤ 7 hari"
-    p2.font.size = Pt(14); p2.font.color.rgb = NAVY; p2.font.bold = True
-
-    rows = len(df_dn_ct) + 3
-    cols = 11
-    table_shape = slide_dn.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0))
-    table = table_shape.table
-    table.columns[0].width = Inches(2.333)
-    for j in range(1, 11):
-        table.columns[j].width = Inches(1.0)
-
-    for j, txt in enumerate(h0):
-        write_cell(table.cell(0, j), txt, bold=True, size=16)
-    for j, txt in enumerate(h1):
-        if j > 0:
-            write_cell(table.cell(1, j), txt, bold=True, size=16)
-
-    table.cell(0, 0).merge(table.cell(1, 0))
-    write_cell(table.cell(0, 0), "DIAGNOSIS", bold=True, size=16)
-
-    district_sums = {d: 0 for d in district_names}
-    total_jum = 0
-    col_dn_dx_name = df_dn_ct.columns[0] if not df_dn_ct.empty else 'DIAGNOSIS'
-
-    for i, (_, row) in enumerate(df_dn_ct.iterrows()):
-        r_idx = i + 2
-        write_cell(table.cell(r_idx, 0), str(row[col_dn_dx_name]), bold=True, align_left=True, size=16)
-        row_jum = 0
-        for j, d_name in enumerate(district_names):
-            val = int(row[d_name]) if d_name in row else 0
-            write_cell(table.cell(r_idx, j + 1), str(val), bold=True, size=16)
-            district_sums[d_name] += val
-            row_jum += val
-        jum_val = int(row['JUM']) if 'JUM' in row else row_jum
-        write_cell(table.cell(r_idx, 10), str(jum_val), bold=True, size=16)
-        total_jum += jum_val
-
-    r_idx = rows - 1
-    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=16)
-    for j, d_name in enumerate(district_names):
-        write_cell(table.cell(r_idx, j + 1), str(district_sums[d_name]), bold=True, size=16)
-    write_cell(table.cell(r_idx, 10), str(total_jum), bold=True, size=16)
-
-    for i, row in enumerate(table.rows):
-        for j, cell in enumerate(row.cells):
-            set_cell_border(cell, NAVY)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i in [0, 1] or j == 0 or i == len(table.rows) - 1:
-                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-            else:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
-
-    bottom_banner = slide_dn.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
-    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-    p = bottom_banner.text_frame.paragraphs[0]
-    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-    # --- Slide 8: Bilangan Kes Yang Masih Berstatus Daftar Notifikasi (Exclusion List) ---
-    slide_dn_exc = prs.slides.add_slide(prs.slide_layouts[6])
-    if os.path.exists("logo.png"):
-        slide_dn_exc.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-    line = slide_dn_exc.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
-
-    txBox = slide_dn_exc.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(9.5), Inches(0.9))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Bilangan Kes Yang Masih Berstatus Daftar Notifikasi"
-    p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-    p2 = txBox.text_frame.add_paragraph()
-    p2.text = f"Tempoh daftar kes ≤ 14 hari"
-    p2.font.size = Pt(14); p2.font.color.rgb = NAVY; p2.font.bold = True
-
-    rows = len(df_dn_exc_ct) + 3
-    cols = 11
-    table_shape = slide_dn_exc.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0))
-    table = table_shape.table
-    table.columns[0].width = Inches(2.333)
-    for j in range(1, 11):
-        table.columns[j].width = Inches(1.0)
-
-    for j, txt in enumerate(h0):
-        write_cell(table.cell(0, j), txt, bold=True, size=16)
-    for j, txt in enumerate(h1):
-        if j > 0:
-            write_cell(table.cell(1, j), txt, bold=True, size=16)
-
-    table.cell(0, 0).merge(table.cell(1, 0))
-    write_cell(table.cell(0, 0), "DIAGNOSIS", bold=True, size=16)
-
-    district_sums = {d: 0 for d in district_names}
-    total_jum = 0
-    col_dn_exc_dx_name = df_dn_exc_ct.columns[0] if not df_dn_exc_ct.empty else 'DIAGNOSIS'
-
-    for i, (_, row) in enumerate(df_dn_exc_ct.iterrows()):
-        r_idx = i + 2
-        write_cell(table.cell(r_idx, 0), str(row[col_dn_exc_dx_name]), bold=True, align_left=True, size=16)
-        row_jum = 0
-        for j, d_name in enumerate(district_names):
-            val = int(row[d_name]) if d_name in row else 0
-            write_cell(table.cell(r_idx, j + 1), str(val), bold=True, size=16)
-            district_sums[d_name] += val
-            row_jum += val
-        jum_val = int(row['JUM']) if 'JUM' in row else row_jum
-        write_cell(table.cell(r_idx, 10), str(jum_val), bold=True, size=16)
-        total_jum += jum_val
-
-    r_idx = rows - 1
-    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=16)
-    for j, d_name in enumerate(district_names):
-        write_cell(table.cell(r_idx, j + 1), str(district_sums[d_name]), bold=True, size=16)
-    write_cell(table.cell(r_idx, 10), str(total_jum), bold=True, size=16)
-
-    for i, row in enumerate(table.rows):
-        for j, cell in enumerate(row.cells):
-            set_cell_border(cell, NAVY)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i in [0, 1] or j == 0 or i == len(table.rows) - 1:
-                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-            else:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
-
-    bottom_banner = slide_dn_exc.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
-    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-    p = bottom_banner.text_frame.paragraphs[0]
-    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-    # --- Slide 9: Viral Hepatitis Subdiagnosis Daftar Notifikasi ---
-    slide_hep_dn = prs.slides.add_slide(prs.slide_layouts[6])
-    if os.path.exists("logo.png"):
-        slide_hep_dn.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-    line = slide_hep_dn.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
-
-    txBox = slide_hep_dn.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(9.5), Inches(0.9))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Bilangan Kes Yang Masih Berstatus Daftar Notifikasi"
-    p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-    p2 = txBox.text_frame.add_paragraph()
-    p2.text = f"Tempoh daftar kes ≤ 14 hari"
-    p2.font.size = Pt(14); p2.font.color.rgb = NAVY; p2.font.bold = True
-
-    rows = len(df_hep_dn_ct) + 3
-    cols = 11
-    table_shape = slide_hep_dn.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0))
-    table = table_shape.table
-    table.columns[0].width = Inches(2.333)
-    for j in range(1, 11):
-        table.columns[j].width = Inches(1.0)
-
-    for j, txt in enumerate(h0):
-        write_cell(table.cell(0, j), txt, bold=True, size=16)
-    for j, txt in enumerate(h1):
-        if j > 0:
-            write_cell(table.cell(1, j), txt, bold=True, size=16)
-
-    table.cell(0, 0).merge(table.cell(1, 0))
-    write_cell(table.cell(0, 0), "DIAGNOSIS", bold=True, size=16)
-
-    district_sums = {d: 0 for d in district_names}
-    total_jum = 0
-    col_hep_dn_dx_name = df_hep_dn_ct.columns[0] if not df_hep_dn_ct.empty else 'DIAGNOSIS'
-
-    for i, (_, row) in enumerate(df_hep_dn_ct.iterrows()):
-        r_idx = i + 2
-        write_cell(table.cell(r_idx, 0), str(row[col_hep_dn_dx_name]), bold=True, align_left=True, size=16)
-        row_jum = 0
-        for j, d_name in enumerate(district_names):
-            val = int(row[d_name]) if d_name in row else 0
-            write_cell(table.cell(r_idx, j + 1), str(val), bold=True, size=16)
-            district_sums[d_name] += val
-            row_jum += val
-        jum_val = int(row['JUM']) if 'JUM' in row else row_jum
-        write_cell(table.cell(r_idx, 10), str(jum_val), bold=True, size=16)
-        total_jum += jum_val
-
-    r_idx = rows - 1
-    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=16)
-    for j, d_name in enumerate(district_names):
-        write_cell(table.cell(r_idx, j + 1), str(district_sums[d_name]), bold=True, size=16)
-    write_cell(table.cell(r_idx, 10), str(total_jum), bold=True, size=16)
-
-    for i, row in enumerate(table.rows):
-        for j, cell in enumerate(row.cells):
-            set_cell_border(cell, NAVY)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i in [0, 1] or j == 0 or i == len(table.rows) - 1:
-                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-            else:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
-
-    bottom_banner = slide_hep_dn.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
-    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-    p = bottom_banner.text_frame.paragraphs[0]
-    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-    # --- Slide 10: Lewat Notifikasi 24 Jam ---
-    slide_l24 = prs.slides.add_slide(prs.slide_layouts[6])
-    if os.path.exists("logo.png"):
-        slide_l24.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-    line = slide_l24.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
-
-    txBox = slide_l24.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(9.5), Inches(0.9))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Lewat Notifikasi 24 Jam"
-    p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
-    p2 = txBox.text_frame.add_paragraph()
-    p2.text = f"ME {epi_week:02d} / {year}"
-    p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
-
-    rows = len(lewat_24h_df) + 2
-    cols = 11
-    table_shape = slide_l24.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(4.5))
-    table = table_shape.table
-    table.columns[0].width = Inches(2.0)
-    for j in range(1, 11):
-        table.columns[j].width = Inches(1.033)
-
-    h_lewat = ["Diagnosis", "GOMBAK", "HULU\nLANGAT", "HULU\nSELANGOR", "KLANG", "KUALA\nLANGAT", "KUALA\nSELANGOR", "PETALING", "SABAK\nBERNAM", "SEPANG", "JUMLAH"]
-    for j, h in enumerate(h_lewat):
-        write_cell(table.cell(0, j), h, bold=True, size=12)
-
-    dist_sums_24 = {d: {'total': 0, 'swasta': 0} for d in VALID_DISTRICTS}
-    total_lewat_24 = 0
-    swasta_lewat_24 = 0
-
-    for i, (_, r) in enumerate(lewat_24h_df.iterrows()):
-        r_idx = i + 1
-        write_cell(table.cell(r_idx, 0), str(r['DIAGNOSIS']), bold=True, align_left=True, size=12)
-        for j, d in enumerate(VALID_DISTRICTS):
-            tot = int(r[f"{d}_tot"])
-            sw = int(r[f"{d}_swasta"])
-            dist_sums_24[d]['total'] += tot
-            dist_sums_24[d]['swasta'] += sw
-            write_cell(table.cell(r_idx, j + 1), format_cell_stat(tot, sw, zero_as_dash=True), bold=True, size=12)
-            
-        r_tot = int(r['TOTAL'])
-        r_sw = int(r['SWASTA'])
-        total_lewat_24 += r_tot
-        swasta_lewat_24 += r_sw
-        write_cell(table.cell(r_idx, 10), format_cell_stat(r_tot, r_sw, zero_as_dash=True), bold=True, size=12)
-
-    r_idx = rows - 1
-    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=12)
-    for j, d in enumerate(VALID_DISTRICTS):
-        tot = dist_sums_24[d]['total']
-        sw = dist_sums_24[d]['swasta']
-        write_cell(table.cell(r_idx, j + 1), format_cell_stat(tot, sw, zero_as_dash=False), bold=True, size=12)
-    write_cell(table.cell(r_idx, 10), format_cell_stat(total_lewat_24, swasta_lewat_24, zero_as_dash=False), bold=True, size=12)
-
-    for i, row in enumerate(table.rows):
-        for j, cell in enumerate(row.cells):
-            set_cell_border(cell, NAVY)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i == 0 or j == 0 or i == len(table.rows) - 1:
-                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-            else:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
-
-    txBox = slide_l24.shapes.add_textbox(Inches(0.5), Inches(6.85), Inches(6), Inches(0.4))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "( ) Kemudahan Kesihatan Swasta"
-    p.font.size = Pt(11); p.font.bold = True; p.font.color.rgb = RGBColor(0, 0, 0)
-
-    bottom_banner = slide_l24.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
-    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-    p = bottom_banner.text_frame.paragraphs[0]
-    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-    # --- Slide 11: Lewat Notifikasi 7 Hari ---
-    slide_l7 = prs.slides.add_slide(prs.slide_layouts[6])
-    if os.path.exists("logo.png"):
-        slide_l7.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
-    line = slide_l7.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-    line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
-
-    txBox = slide_l7.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(9.5), Inches(0.9))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "Lewat Notifikasi 7 Hari"
-    p.font.size = Pt(36); p.font.bold = True; p.font.color.rgb = NAVY
-    p2 = txBox.text_frame.add_paragraph()
-    p2.text = f"ME {epi_week:02d} / {year}"
-    p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
-
-    rows = len(lewat_7d_df) + 2
-    cols = 11
-    table_shape = slide_l7.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(12.333), Inches(4.5))
-    table = table_shape.table
-    table.columns[0].width = Inches(2.0)
-    for j in range(1, 11):
-        table.columns[j].width = Inches(1.033)
-
-    for j, h in enumerate(h_lewat):
-        write_cell(table.cell(0, j), h, bold=True, size=12)
-
-    dist_sums_7 = {d: {'total': 0, 'swasta': 0} for d in VALID_DISTRICTS}
-    total_lewat_7 = 0
-    swasta_lewat_7 = 0
-
-    for i, (_, r) in enumerate(lewat_7d_df.iterrows()):
-        r_idx = i + 1
-        write_cell(table.cell(r_idx, 0), str(r['DIAGNOSIS']), bold=True, align_left=True, size=12)
-        for j, d in enumerate(VALID_DISTRICTS):
-            tot = int(r[f"{d}_tot"])
-            sw = int(r[f"{d}_swasta"])
-            dist_sums_7[d]['total'] += tot
-            dist_sums_7[d]['swasta'] += sw
-            write_cell(table.cell(r_idx, j + 1), format_cell_stat(tot, sw, zero_as_dash=True), bold=True, size=12)
-            
-        r_tot = int(r['TOTAL'])
-        r_sw = int(r['SWASTA'])
-        total_lewat_7 += r_tot
-        swasta_lewat_7 += r_sw
-        write_cell(table.cell(r_idx, 10), format_cell_stat(r_tot, r_sw, zero_as_dash=True), bold=True, size=12)
-
-    r_idx = rows - 1
-    write_cell(table.cell(r_idx, 0), "JUMLAH", bold=True, size=12)
-    for j, d in enumerate(VALID_DISTRICTS):
-        tot = dist_sums_7[d]['total']
-        sw = dist_sums_7[d]['swasta']
-        write_cell(table.cell(r_idx, j + 1), format_cell_stat(tot, sw, zero_as_dash=False), bold=True, size=12)
-    write_cell(table.cell(r_idx, 10), format_cell_stat(total_lewat_7, swasta_lewat_7, zero_as_dash=False), bold=True, size=12)
-
-    for i, row in enumerate(table.rows):
-        for j, cell in enumerate(row.cells):
-            set_cell_border(cell, NAVY)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if i == 0 or j == 0 or i == len(table.rows) - 1:
-                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-            else:
-                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
-
-    txBox = slide_l7.shapes.add_textbox(Inches(0.5), Inches(6.85), Inches(6), Inches(0.4))
-    p = txBox.text_frame.paragraphs[0]
-    p.text = "( ) Kemudahan Kesihatan Swasta"
-    p.font.size = Pt(11); p.font.bold = True; p.font.color.rgb = RGBColor(0, 0, 0)
-
-    bottom_banner = slide_l7.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
-    bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-    p = bottom_banner.text_frame.paragraphs[0]
-    p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-    p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-    bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-    # --- Slide 12+: Bilangan Keseluruhan Episod Wabak / Kluster Mengikut Daerah ---
+            set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i==0 or j==0 or i==len(tb4.rows)-1 else RGBColor(255,255,255)
+    add_bottom_banner(s4)
+
+    # --- Slide 5 to 9: CT Tables ---
+    def build_ct_slide(title, subtitle, df_ct):
+        sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, title, subtitle)
+        tb = sl.shapes.add_table(len(df_ct)+3, 11, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0)).table
+        tb.columns[0].width = Inches(2.333)
+        for j in range(1, 11): tb.columns[j].width = Inches(1.0)
+        
+        for j, txt in enumerate(["DIAGNOSIS"] + [d[1] for d in DISTRICT_ABBR] + ["JUM"]): write_cell(tb.cell(0, j), txt, size=16)
+        for j in range(1, 11): write_cell(tb.cell(1, j), f"ME{epi_week:02d}", size=16)
+        tb.cell(0, 0).merge(tb.cell(1, 0)); write_cell(tb.cell(0, 0), "DIAGNOSIS", size=16)
+
+        ds = {d[0]: 0 for d in DISTRICT_ABBR}; tot = 0
+        cn = df_ct.columns[0] if not df_ct.empty else 'DIAGNOSIS'
+
+        for i, (_, r) in enumerate(df_ct.iterrows()):
+            ri = i + 2; rj = 0
+            write_cell(tb.cell(ri, 0), str(r[cn]), align_left=True, size=16)
+            for j, d_name in enumerate([d[0] for d in DISTRICT_ABBR]):
+                v = int(r[d_name]) if d_name in r else 0
+                write_cell(tb.cell(ri, j + 1), str(v), size=16)
+                ds[d_name] += v; rj += v
+            write_cell(tb.cell(ri, 10), str(int(r['JUM']) if 'JUM' in r else rj), size=16); tot += (int(r['JUM']) if 'JUM' in r else rj)
+
+        ri = len(tb.rows) - 1
+        write_cell(tb.cell(ri, 0), "JUMLAH", size=16)
+        for j, d_name in enumerate([d[0] for d in DISTRICT_ABBR]): write_cell(tb.cell(ri, j + 1), str(ds[d_name]), size=16)
+        write_cell(tb.cell(ri, 10), str(tot), size=16)
+
+        for i, row in enumerate(tb.rows):
+            for j, cell in enumerate(row.cells):
+                set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i in [0, 1] or j==0 or i==len(tb.rows)-1 else RGBColor(255,255,255)
+        add_bottom_banner(sl)
+
+    build_ct_slide("Senarai Kes Belum Ambil Tindakan Mengikut Diagnosis", f"ME {epi_week:02d} / {year}", df_belum_ct)
+    build_ct_slide("Senarai Kes Belum Ambil Tindakan Mengikut Diagnosis", f"ME {epi_week:02d} / {year}", df_hep_ct)
+    build_ct_slide("Bilangan Kes Yang Masih Berstatus Daftar Notifikasi", "Tempoh daftar kes ≤ 7 hari", df_dn_ct)
+    build_ct_slide("Bilangan Kes Yang Masih Berstatus Daftar Notifikasi", "Tempoh daftar kes ≤ 14 hari", df_dn_exc_ct)
+    build_ct_slide("Bilangan Kes Yang Masih Berstatus Daftar Notifikasi", "Tempoh daftar kes ≤ 14 hari", df_hep_dn_ct)
+
+    # --- Slide 10 & 11: Lewat Notifikasi ---
+    def build_lewat_slide(title, df_l):
+        sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, title, f"ME {epi_week:02d} / {year}")
+        tb = sl.shapes.add_table(len(df_l)+2, 11, Inches(0.5), Inches(1.5), Inches(12.333), Inches(4.5)).table
+        tb.columns[0].width = Inches(2.0)
+        for j in range(1, 11): tb.columns[j].width = Inches(1.033)
+        for j, h in enumerate(["Diagnosis", "GOMBAK", "HULU\nLANGAT", "HULU\nSELANGOR", "KLANG", "KUALA\nLANGAT", "KUALA\nSELANGOR", "PETALING", "SABAK\nBERNAM", "SEPANG", "JUMLAH"]): write_cell(tb.cell(0, j), h, size=12)
+
+        ds = {d: {'t': 0, 's': 0} for d in VALID_DISTRICTS}; tt = 0; ts = 0
+        for i, (_, r) in enumerate(df_l.iterrows()):
+            ri = i + 1
+            write_cell(tb.cell(ri, 0), str(r['DIAGNOSIS']), align_left=True, size=12)
+            for j, d in enumerate(VALID_DISTRICTS):
+                t, s = int(r[f"{d}_tot"]), int(r[f"{d}_swasta"])
+                ds[d]['t'] += t; ds[d]['s'] += s
+                write_cell(tb.cell(ri, j + 1), format_cell_stat(t, s, True), size=12)
+            tt += int(r['TOTAL']); ts += int(r['SWASTA'])
+            write_cell(tb.cell(ri, 10), format_cell_stat(int(r['TOTAL']), int(r['SWASTA']), True), size=12)
+
+        ri = len(tb.rows) - 1
+        write_cell(tb.cell(ri, 0), "JUMLAH", size=12)
+        for j, d in enumerate(VALID_DISTRICTS): write_cell(tb.cell(ri, j + 1), format_cell_stat(ds[d]['t'], ds[d]['s'], False), size=12)
+        write_cell(tb.cell(ri, 10), format_cell_stat(tt, ts, False), size=12)
+
+        for i, row in enumerate(tb.rows):
+            for j, cell in enumerate(row.cells):
+                set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i==0 or j==0 or i==len(tb.rows)-1 else RGBColor(255,255,255)
+
+        tf = sl.shapes.add_textbox(Inches(0.5), Inches(6.85), Inches(6), Inches(0.4)).text_frame
+        tf.paragraphs[0].text = "( ) Kemudahan Kesihatan Swasta"; tf.paragraphs[0].font.size, tf.paragraphs[0].font.bold = Pt(11), True
+        add_bottom_banner(sl)
+
+    build_lewat_slide("Lewat Notifikasi 24 Jam", lewat_24h_df)
+    build_lewat_slide("Lewat Notifikasi 7 Hari", lewat_7d_df)
+
+    # --- Slide 12+: Wabak Mengikut Daerah ---
     if not df_wabak.empty:
-        chunk_size = 10
-        total_rows_w = len(df_wabak)
-        num_pages = (total_rows_w + chunk_size - 1) // chunk_size
-        
-        for page_idx in range(num_pages):
-            start_i = page_idx * chunk_size
-            end_i = min(start_i + chunk_size, total_rows_w)
-            chunk = df_wabak.iloc[start_i:end_i]
+        for p_i in range((len(df_wabak) + 9) // 10):
+            chunk = df_wabak.iloc[p_i * 10 : (p_i + 1) * 10]
+            sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, "Bilangan Keseluruhan Episod Wabak / Kluster Mengikut Daerah", f"Sehingga ME {epi_week:02d} / {year}")
             
-            slide_w = prs.slides.add_slide(prs.slide_layouts[6])
-            
-            if os.path.exists("logo.png"):
-                slide_w.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
+            tb = sl.shapes.add_table(len(chunk) + 2, 12, Inches(0.4), Inches(1.5), Inches(12.533), Inches(5.0)).table
+            tb.columns[0].width, tb.columns[1].width, tb.columns[11].width = Inches(0.7), Inches(2.4), Inches(1.333)
+            for c in range(2, 11): tb.columns[c].width = Inches(0.9)
 
-            line = slide_w.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-            line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
+            tb.cell(0, 2).merge(tb.cell(0, 10)); tb.cell(0, 0).merge(tb.cell(1, 0)); tb.cell(0, 1).merge(tb.cell(1, 1)); tb.cell(0, 11).merge(tb.cell(1, 11))
+            write_wabak_cell(tb.cell(0, 0), "Bil"); write_wabak_cell(tb.cell(0, 1), "Wabak")
+            write_header_with_red_me(tb.cell(0, 2), "Pecahan kumulatif mengikut daerah", f"(ME {epi_week:02d} / {year})")
+            write_header_with_red_me(tb.cell(0, 11), "Kumulatif sehingga ME", f"({epi_week:02d} / {year})", newline=True)
+            for ci, ab in enumerate(["GBK", "HL", "HS", "KLG", "KL", "KS", "PTG", "SB", "SPG"]): write_wabak_cell(tb.cell(1, ci + 2), ab)
 
-            txBox = slide_w.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(10.0), Inches(0.9))
-            p = txBox.text_frame.paragraphs[0]
-            p.text = "Bilangan Keseluruhan Episod Wabak / Kluster Mengikut Daerah"
-            p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-            
-            p2 = txBox.text_frame.add_paragraph()
-            p2.text = f"Sehingga ME {epi_week:02d} / {year}"
-            p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
+            for ri, (_, r) in enumerate(chunk.iterrows()):
+                cr = ri + 2
+                wn = str(r.iloc[1]).strip()
+                ij = wn.upper() == 'JUMLAH'
+                write_wabak_cell(tb.cell(cr, 0), "" if ij else str(p_i * 10 + ri + 1))
+                write_wabak_cell(tb.cell(cr, 1), wn, align_left=True)
+                for ci in range(9): write_wabak_cell(tb.cell(cr, ci + 2), r.iloc[ci + 2] if (ci + 2) < len(r) else "-")
+                write_wabak_cell(tb.cell(cr, 11), r.iloc[11] if 11 < len(r) else "-")
 
-            rows = len(chunk) + 2
-            cols = 12
-            table_shape = slide_w.shapes.add_table(rows, cols, Inches(0.4), Inches(1.5), Inches(12.533), Inches(5.0))
-            table = table_shape.table
-            
-            table.columns[0].width = Inches(0.7)
-            table.columns[1].width = Inches(2.4)
-            for c in range(2, 11):
-                table.columns[c].width = Inches(0.9)
-            table.columns[11].width = Inches(1.333)
-
-            table.cell(0, 2).merge(table.cell(0, 10))
-
-            table.cell(0, 0).merge(table.cell(1, 0))
-            write_wabak_cell(table.cell(0, 0), "Bil", bold=True, size=13)
-
-            table.cell(0, 1).merge(table.cell(1, 1))
-            write_wabak_cell(table.cell(0, 1), "Wabak", bold=True, size=13)
-
-            write_header_with_red_me(
-                table.cell(0, 2),
-                "Pecahan kumulatif mengikut daerah",
-                f"(ME {epi_week:02d} / {year})",
-                size=13,
-                newline=False
-            )
-
-            table.cell(0, 11).merge(table.cell(1, 11))
-            write_header_with_red_me(
-                table.cell(0, 11),
-                "Kumulatif sehingga ME",
-                f"({epi_week:02d} / {year})",
-                size=13,
-                newline=True
-            )
-
-            dist_abbrs = ["GBK", "HL", "HS", "KLG", "KL", "KS", "PTG", "SB", "SPG"]
-            for c_i, abbr in enumerate(dist_abbrs):
-                write_wabak_cell(table.cell(1, c_i + 2), abbr, bold=True, size=13)
-
-            for r_i, (_, r_data) in enumerate(chunk.iterrows()):
-                curr_row = r_i + 2
-                row_num = page_idx * chunk_size + (r_i + 1)
-                wabak_name = str(r_data.iloc[1]).strip()
-                is_jumlah = wabak_name.upper() == 'JUMLAH'
-                
-                bil_val = "" if is_jumlah else str(row_num)
-                write_wabak_cell(table.cell(curr_row, 0), bil_val, bold=True, size=13)
-                write_wabak_cell(table.cell(curr_row, 1), wabak_name, bold=True, align_left=True, size=13)
-                
-                for c_i in range(9):
-                    val = r_data.iloc[c_i + 2] if (c_i + 2) < len(r_data) else "-"
-                    write_wabak_cell(table.cell(curr_row, c_i + 2), val, bold=True, size=13)
-                    
-                val_kum = r_data.iloc[11] if 11 < len(r_data) else "-"
-                write_wabak_cell(table.cell(curr_row, 11), val_kum, bold=True, size=13)
-
-            for i, row in enumerate(table.rows):
-                is_jumlah_row = False
-                if i >= 2:
-                    row_label = row.cells[1].text_frame.text.strip().upper()
-                    if row_label == 'JUMLAH':
-                        is_jumlah_row = True
-
+            for i, row in enumerate(tb.rows):
+                ij = i >= 2 and row.cells[1].text_frame.text.strip().upper() == 'JUMLAH'
                 for j, cell in enumerate(row.cells):
-                    set_cell_border(cell, NAVY)
-                    cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-                    if i in [0, 1] or j in [0, 1] or is_jumlah_row:
-                        cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-                    else:
-                        cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+                    set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                    cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i in [0, 1] or j in [0, 1] or ij else RGBColor(255,255,255)
+            add_bottom_banner(sl)
 
-            bottom_banner = slide_w.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
-            bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-            p = bottom_banner.text_frame.paragraphs[0]
-            p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-            p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-            bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-    # --- Slide 13+: Bilangan Insiden/Bencana Mengikut Daerah ---
+    # --- Slide 13+: Insiden/Bencana ---
     if not df_bencana.empty:
-        chunk_size_b = 8
-        total_rows_b = len(df_bencana)
-        num_pages_b = (total_rows_b + chunk_size_b - 1) // chunk_size_b
-        
-        for page_idx in range(num_pages_b):
-            start_i = page_idx * chunk_size_b
-            end_i = min(start_i + chunk_size_b, total_rows_b)
-            chunk = df_bencana.iloc[start_i:end_i]
+        for p_i in range((len(df_bencana) + 7) // 8):
+            chunk = df_bencana.iloc[p_i * 8 : (p_i + 1) * 8]
+            sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, "Bilangan Insiden/Bencana Mengikut Daerah", f"Sehingga ME {epi_week:02d} / {year}")
             
-            slide_b = prs.slides.add_slide(prs.slide_layouts[6])
+            tb = sl.shapes.add_table(len(chunk) + 2, 14, Inches(0.4), Inches(1.5), Inches(12.533), Inches(4.5)).table
+            tb.columns[0].width = Inches(1.8)
+            for c in range(1, 14): tb.columns[c].width = Inches(0.82)
             
-            if os.path.exists("logo.png"):
-                slide_b.shapes.add_picture("logo.png", Inches(0.6), Inches(0.3), width=Inches(1.5))
+            tb.cell(0, 1).merge(tb.cell(0, 11)); tb.cell(0, 0).merge(tb.cell(1, 0)); tb.cell(0, 12).merge(tb.cell(1, 12)); tb.cell(0, 13).merge(tb.cell(1, 13))
+            write_wabak_cell(tb.cell(0, 0), "INSIDEN/BENCANA", size=13)
+            write_header_with_red_me(tb.cell(0, 1), "Pecahan kumulatif mengikut daerah", f"(ME {epi_week:02d} / {year})", size=13)
+            write_wabak_cell(tb.cell(0, 12), "JUMLAH", size=13); write_wabak_cell(tb.cell(0, 13), "DIISYTIHAR OLEH CPRC KKM", size=11)
+            for ci, ab in enumerate(["GOMBAK", "HULU\nLANGAT", "HULU\nSELANGOR", "KLANG", "KUALA\nLANGAT", "KUALA\nSELANGOR", "PETALING", "SABAK\nBERNAM", "SEPANG", "PK P.KLANG", "PK KLIA"]): write_wabak_cell(tb.cell(1, ci + 1), ab, size=11)
 
-            line = slide_b.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.3), Inches(0.4), Inches(0.03), Inches(0.9))
-            line.fill.solid(); line.fill.fore_color.rgb = NAVY; line.line.fill.background()
+            for ri, (_, r) in enumerate(chunk.iterrows()):
+                cr = ri + 2
+                in_name = str(r.iloc[0]).strip()
+                ij = in_name.upper() == 'JUMLAH'
+                write_wabak_cell(tb.cell(cr, 0), in_name, align_left=True, size=13)
+                for ci in range(1, 14): write_wabak_cell(tb.cell(cr, ci), r.iloc[ci] if ci < len(r) else "-", size=13)
 
-            txBox = slide_b.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(10.0), Inches(0.9))
-            p = txBox.text_frame.paragraphs[0]
-            p.text = "Bilangan Insiden/Bencana Mengikut Daerah"
-            p.font.size = Pt(28); p.font.bold = True; p.font.color.rgb = NAVY
-            
-            p2 = txBox.text_frame.add_paragraph()
-            p2.text = f"Sehingga ME {epi_week:02d} / {year}"
-            p2.font.size = Pt(16); p2.font.color.rgb = NAVY; p2.font.bold = True
-
-            rows = len(chunk) + 2
-            cols = 14
-            table_shape = slide_b.shapes.add_table(rows, cols, Inches(0.3), Inches(1.5), Inches(12.733), Inches(5.0))
-            table = table_shape.table
-            
-            table.columns[0].width = Inches(2.0)
-            for c in range(1, 10):
-                table.columns[c].width = Inches(0.83)
-            table.columns[10].width = Inches(0.86)
-            table.columns[11].width = Inches(0.80)
-            table.columns[12].width = Inches(0.77)
-            table.columns[13].width = Inches(0.83)
-
-            table.cell(0, 1).merge(table.cell(0, 11))
-
-            table.cell(0, 0).merge(table.cell(1, 0))
-            write_wabak_cell(table.cell(0, 0), "INSIDEN/BENCANA", bold=True, size=13)
-
-            write_header_with_red_me(
-                table.cell(0, 1),
-                "Pecahan kumulatif mengikut daerah",
-                f"(ME {epi_week:02d} / {year})",
-                size=13,
-                newline=False
-            )
-
-            table.cell(0, 12).merge(table.cell(1, 12))
-            write_wabak_cell(table.cell(0, 12), "JUMLAH", bold=True, size=13)
-
-            table.cell(0, 13).merge(table.cell(1, 13))
-            write_wabak_cell(table.cell(0, 13), "DIISYTIHAR\nOLEH CPRC\nKKM", bold=True, size=13)
-
-            dist_names_bencana = [
-                "GOMBAK", "HULU\nLANGAT", "HULU\nSELANGOR", "KLANG", 
-                "KUALA\nLANGAT", "KUALA\nSELANGOR", "PETALING", "SABAK\nBERNAM", 
-                "SEPANG", "PK P.KLANG", "PK KLIA"
-            ]
-            for c_i, d_name in enumerate(dist_names_bencana):
-                write_wabak_cell(table.cell(1, c_i + 1), d_name, bold=True, size=13)
-
-            for r_i, (_, r_data) in enumerate(chunk.iterrows()):
-                curr_row = r_i + 2
-                inc_name = str(r_data.iloc[0]).strip()
-                write_wabak_cell(table.cell(curr_row, 0), inc_name, bold=True, align_left=True, size=13)
-                
-                for c_i in range(1, 14):
-                    val = r_data.iloc[c_i] if c_i < len(r_data) else "-"
-                    write_wabak_cell(table.cell(curr_row, c_i), val, bold=True, size=13)
-
-            for i, row in enumerate(table.rows):
-                is_jumlah_row = False
-                if i >= 2:
-                    row_label = row.cells[0].text_frame.text.strip().upper()
-                    if row_label == 'JUMLAH':
-                        is_jumlah_row = True
-
+            for i, row in enumerate(tb.rows):
+                ij = i >= 2 and row.cells[0].text_frame.text.strip().upper() == 'JUMLAH'
                 for j, cell in enumerate(row.cells):
-                    set_cell_border(cell, NAVY)
-                    cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-                    if i in [0, 1] or j == 0 or is_jumlah_row:
-                        cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY
-                    else:
-                        cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+                    set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                    cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i in [0, 1] or j == 0 or ij else RGBColor(255,255,255)
+            add_bottom_banner(sl)
 
-            bottom_banner = slide_b.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
-            bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
-            p = bottom_banner.text_frame.paragraphs[0]
-            p.text = "UNIT SURVELAN & KESIAPSIAGAAN, JABATAN KESIHATAN NEGERI SELANGOR"
-            p.font.size = Pt(9); p.font.color.rgb = RGBColor(255, 255, 255); p.alignment = PP_ALIGN.RIGHT; p.font.name = 'Calibri'; p.font.bold = True
-            bottom_banner.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+    # --- Slide X: Tren Wabak Chart ---
+    if not df_graf.empty:
+        sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
+        
+        # Clean chart data
+        df_g = df_graf.dropna(how='all', axis=1).dropna(how='all', axis=0)
+        categories = [str(x).replace('.0', '') for x in df_g.iloc[:, 0].tolist()]
+        series_names = df_g.columns[1:].tolist()
+        
+        chart_data = CategoryChartData()
+        chart_data.categories = categories
+        for sn in series_names:
+            chart_data.add_series(sn, pd.to_numeric(df_g[sn], errors='coerce').fillna(0).tolist())
+            
+        chart = sl.shapes.add_chart(XL_CHART_TYPE.COLUMN_STACKED_100, Inches(0.4), Inches(1.5), Inches(10), Inches(5.0), chart_data).chart
+        chart.has_legend = True
+        chart.legend.position = XL_LEGEND_POSITION.RIGHT
+        chart.legend.font.size = Pt(10)
+        
+        for series in chart.series:
+            sn = series.name.strip()
+            color = None
+            for key, c in DISEASE_COLORS.items():
+                if key.lower() in sn.lower():
+                    color = c
+                    break
+            if color:
+                series.format.fill.solid()
+                series.format.fill.fore_color.rgb = color
 
-    buffer = io.BytesIO()
-    prs.save(buffer)
-    buffer.seek(0)
+        # Draw dashed line at year reset (where cat drops to 1 or 2)
+        idx_reset = -1
+        for i in range(1, len(categories)):
+            if int(categories[i]) < int(categories[i-1]) and int(categories[i-1]) >= 50:
+                idx_reset = i
+                break
+        
+        if idx_reset != -1:
+            plot_width = 10.0  # approximate width in inches
+            x_pos = 0.4 + (plot_width / len(categories)) * idx_reset
+            line = sl.shapes.add_shape(MSO_SHAPE.LINE, Inches(x_pos), Inches(1.5), Inches(x_pos), Inches(6.5))
+            line.line.color.rgb = RGBColor(0, 0, 0)
+            line.line.width = Pt(4)
+            line.line.dash_style = 7 # dashed
+            
+        add_bottom_banner(sl)
+
+    buffer = io.BytesIO(); prs.save(buffer); buffer.seek(0)
     return buffer
 
 # ---------------------------------------------------------
@@ -1580,40 +677,11 @@ uploaded_file = st.file_uploader("Upload raw Excel data (Analisa e-Notifikasi)",
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
-        (
-            total_rows, stats_semasa, stats_kumulatif, df_penyakit, 
-            df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, 
-            df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_24h_raw, df_7d_raw,
-            df_wabak, df_bencana
-        ) = load_and_process_data(
-            uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14
-        )
+        (t_rows, s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, l24_r, l7_r, df_w, df_ben, df_g) = load_and_process_data(uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14)
+        pptx_buffer = generate_pptx(s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, df_w, df_ben, df_g, epi_week, year)
         
-        pptx_buffer = generate_pptx(
-            stats_semasa, stats_kumulatif, df_penyakit, df_district, 
-            df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, 
-            lewat_24h_df, lewat_7d_df, df_wabak, df_bencana, epi_week, year
-        )
-        
-        st.success(f"Successfully processed {total_rows:,} records. Slide deck is ready!")
+        st.success(f"Successfully processed {t_rows:,} records. Slide deck is ready!")
 
-        col_d1, col_d2 = st.columns(2)
-        with col_d1:
-            st.download_button(
-                label="📥 Download Presentation (.pptx)",
-                data=pptx_buffer,
-                file_name=f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx",
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                use_container_width=True
-            )
-        with col_d2:
-            excel_buffer = generate_lewat_excel(df_24h_raw, df_7d_raw)
-            st.download_button(
-                label="📥 Download Raw Data Lewat (.xlsx)",
-                data=excel_buffer,
-                file_name=f"Senarai_Lewat_Notifikasi_ME{epi_week:02d}_{year}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-else:
-    st.info("⚠️ Please upload the Excel file. The presentation will automatically generate once uploaded.")
+        c1, c2 = st.columns(2)
+        with c1: st.download_button("📥 Download Presentation (.pptx)", pptx_buffer, f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", use_container_width=True)
+        with c2: st.download_button("📥 Download Raw Data Lewat (.xlsx)", generate_lewat_excel(l24_r, l7_r), f"Senarai_Lewat_Notifikasi_ME{epi_week:02d}_{year}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
