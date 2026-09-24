@@ -737,7 +737,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p.font.size = Pt(9); p.font.bold = True; p.font.name = 'Calibri'; p.font.color.rgb = RGBColor(0, 0, 0) 
     p2 = txBox.text_frame.add_paragraph()
     p2.text = "*(Mati)"
-    p2.font.size = Pt(9); p.font.bold = True; p.font.color.rgb = RGBColor(255, 0, 0); p2.font.name = 'Calibri' 
+    p2.font.size = Pt(9); p2.font.bold = True; p.font.color.rgb = RGBColor(255, 0, 0); p2.font.name = 'Calibri' 
     
     bottom_banner = slide_penyakit.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
     bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
@@ -1373,8 +1373,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 table.columns[c].width = Inches(0.9)
             table.columns[11].width = Inches(1.333)
 
-            for c_i in range(3, 11):
-                table.cell(0, 2).merge(table.cell(0, c_i))
+            # Single merge call across columns 2 to 10 in row 0
+            table.cell(0, 2).merge(table.cell(0, 10))
 
             table.cell(0, 0).merge(table.cell(1, 0))
             write_wabak_cell(table.cell(0, 0), "Bil", bold=True, size=13)
