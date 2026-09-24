@@ -266,7 +266,6 @@ def fetch_bencana_data():
     except: return pd.DataFrame()
 
 def fetch_graf_data():
-    # Strictly query starting from Column B (B2:AD120) to completely bypass Column A ('tahun')
     url = f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=B2:AD120"
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
@@ -276,30 +275,23 @@ def fetch_graf_data():
             if raw_df.empty or len(raw_df) < 2:
                 return pd.DataFrame()
             
-            # Row 0 contains Row 2 of sheet ('Minggu Epid', 'Denggi', 'Malaria', etc.)
             raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
-            
-            # Data starts at Row 1
             data_df = raw_df.iloc[1:].copy()
             
-            # Column 0 is 'Minggu Epid' (Epi Weeks: 39, 40, ..., 52, 1, 2, ... 37)
             data_df[0] = pd.to_numeric(data_df[0], errors='coerce')
             data_df = data_df.dropna(subset=[0])
             data_df[0] = data_df[0].astype(int).astype(str)
             
             clean_dict = {'Minggu Epid': data_df[0].tolist()}
             
-            # Columns 1 onwards are disease series
             for col_i in range(1, len(raw_headers)):
                 raw_name = raw_headers[col_i]
-                
                 clean_name = raw_name
                 raw_name_low = str(raw_name).lower().strip()
                 for key, val in HEADER_CLEAN_MAP.items():
                     if key in raw_name_low:
                         clean_name = val
                         break
-                
                 vals = pd.to_numeric(data_df[col_i], errors='coerce').fillna(0).tolist()
                 clean_dict[clean_name] = vals
                 
@@ -715,15 +707,13 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             add_bottom_banner(sl)
 
     # --- Slide X: Tren Wabak Native Chart ---
-    if not df_graf.empty and 'Minggu Epid' in df_graf.columns:
+    if not df_graf.empty and len(df_graf.columns) > 1:
         sl = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
-        # Categories = Minggu Epid (Epi Weeks: 39, 40, ..., 52, 1, 2, ... 37)
-        categories = [str(x) for x in df_graf['Minggu Epid'].tolist()]
-        
-        # Series = All Disease Columns
-        series_cols = [c for c in df_graf.columns if c != 'Minggu Epid' and not str(c).startswith('Unnamed')]
+        x_col = df_graf.columns[0]
+        categories = [str(x) for x in df_graf[x_col].tolist()]
+        series_cols = [c for c in df_graf.columns[1:] if not str(c).startswith('Unnamed')]
         
         chart_data = CategoryChartData()
         chart_data.categories = categories
@@ -737,10 +727,31 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             chart_data
         ).chart
         
+        # Legend styling
         chart.has_legend = True
         chart.legend.position = XL_LEGEND_POSITION.RIGHT
+        chart.legend.include_in_layout = False
         chart.legend.font.size = Pt(10)
+        chart.legend.font.name = 'Calibri'
         
+        # Axis font styling & disable gridlines
+        val_axis = chart.value_axis
+        val_axis.has_major_gridlines = False
+        val_axis.has_minor_gridlines = False
+        val_axis.tick_labels.font.size = Pt(10)
+        val_axis.tick_labels.font.name = 'Calibri'
+        
+        cat_axis = chart.category_axis
+        cat_axis.tick_labels.font.size = Pt(10)
+        cat_axis.tick_labels.font.name = 'Calibri'
+        
+        # Thicken bars
+        try:
+            chart.plots[0].gap_width = 30
+        except:
+            pass
+        
+        # Colors
         for series in chart.series:
             sn = series.name.strip()
             color = DISEASE_COLORS.get(sn, None)
@@ -753,7 +764,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 series.format.fill.solid()
                 series.format.fill.fore_color.rgb = color
 
-        # Dashed boundary line at year reset
+        # Dashed Year Reset Line
         idx_reset = -1
         for i in range(1, len(categories)):
             try:
@@ -791,11 +802,8 @@ uploaded_file = st.file_uploader("Upload raw Excel data (Analisa e-Notifikasi)",
 
 if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
-        # Fetch fresh chart data independently outside of Excel caching
         df_g = fetch_graf_data()
-        
         (t_rows, s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, l24_r, l7_r, df_w, df_ben) = load_and_process_data(uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14)
-        
         pptx_buffer = generate_pptx(s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, df_w, df_ben, df_g, epi_week, year)
         
         st.success(f"Successfully processed {t_rows:,} records. Slide deck is ready!")
