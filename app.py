@@ -162,10 +162,8 @@ def write_wabak_cell(cell, text, bold=True, align_left=False, size=13):
     p = tf.paragraphs[0]
     p.alignment = PP_ALIGN.LEFT if align_left else PP_ALIGN.CENTER
     val_str = str(text).strip()
-    
     if val_str.lower() in ["nan", "none", ""]: val_str = "-"
     val_str = re.sub(r'\(Rsv\)', '(RSV)', val_str, flags=re.IGNORECASE)
-    
     match = re.search(r'^(.*?)\s*(\([0-9]+\))$', val_str)
     if match:
         if match.group(1).strip():
@@ -248,7 +246,19 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     def get_stats(d_sub):
         tot = len(d_sub)
         c = d_sub[c_br].value_counts().to_dict()
-        return {'total': tot, 'daftar_notifikasi': c.get('Daftar Notifikasi',0), 'daftar_kes': c.get('Daftar Kes',0), 'abai': c.get('Abai Notifikasi',0), 'belum': c.get('Belum Ambil Tindakan',0), 'batal': c.get('Batal Daftar',0), 'pct_daftar_notif': f"{(c.get('Daftar Notifikasi',0)/tot*100):.0f}%" if tot else "0%", 'pct_daftar_kes': f"{(c.get('Daftar Kes',0)/tot*100):.0f}%" if tot else "0%", 'pct_abai': f"{(c.get('Abai Notifikasi',0)/tot*100):.0f}%" if tot else "0%", 'pct_belum': f"{(c.get('Belum Ambil Tindakan',0)/tot*100):.2f}%" if tot else "0.00%", 'pct_batal': f"{(c.get('Batal Daftar',0)/tot*100):.2f}%" if tot else "0.00%"}
+        return {
+            'total': tot,
+            'daftar_notifikasi': c.get('Daftar Notifikasi', 0),
+            'daftar_kes': c.get('Daftar Kes', 0),
+            'abai': c.get('Abai Notifikasi', 0),
+            'belum': c.get('Belum Ambil Tindakan', 0),
+            'batal': c.get('Batal Daftar', 0),
+            'pct_daftar_notif': f"{(c.get('Daftar Notifikasi', 0)/tot*100):.0f}%" if tot else "0%",
+            'pct_daftar_kes': f"{(c.get('Daftar Kes', 0)/tot*100):.0f}%" if tot else "0%",
+            'pct_abai': f"{(c.get('Abai Notifikasi', 0)/tot*100):.0f}%" if tot else "0%",
+            'pct_belum': f"{(c.get('Belum Ambil Tindakan', 0)/tot*100):.2f}%" if tot else "0.00%",
+            'pct_batal': f"{(c.get('Batal Daftar', 0)/tot*100):.2f}%" if tot else "0.00%"
+        }
         
     stats_semasa = get_stats(df_semasa)
     stats_kumulatif = get_stats(df_kumulatif)
@@ -403,12 +413,24 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     for c in range(5): tb.columns[c].width = Inches(2.2)
     for i, txt in enumerate(["Minggu Epid", f"ME {epi_week:02d} (Semasa)", "", f"Kumulatif Sehingga ME {epi_week:02d}", ""]): write_cell(tb.cell(0, i), txt, size=17) 
     tb.cell(0, 1).merge(tb.cell(0, 2)); tb.cell(0, 3).merge(tb.cell(0, 4))
-    for i, l in enumerate(["", "Jumlah Notifikasi", "Daftar Notifikasi", "Daftar Kes", "Abai Notifikasi", "Belum Ambil Tindakan", "Batal Daftar"]): write_cell(tb.cell(i, 0), l, size=17) if i>0 else None
+    for i, label_txt in enumerate(["", "Jumlah Notifikasi", "Daftar Notifikasi", "Daftar Kes", "Abai Notifikasi", "Belum Ambil Tindakan", "Batal Daftar"]):
+        if i > 0: write_cell(tb.cell(i, 0), label_txt, size=17)
     
     write_cell(tb.cell(1, 1), f"{stats_semasa['total']:,}", size=17); write_cell(tb.cell(1, 3), f"{stats_kumulatif['total']:,}", size=17)
+    
+    pct_key_map = {
+        'daftar_notifikasi': 'pct_daftar_notif',
+        'daftar_kes': 'pct_daftar_kes',
+        'abai': 'pct_abai',
+        'belum': 'pct_belum',
+        'batal': 'pct_batal'
+    }
+    
     for r, k in enumerate(['daftar_notifikasi', 'daftar_kes', 'abai', 'belum', 'batal'], 2):
-        write_cell(tb.cell(r, 1), f"{stats_semasa[k]:,}", size=17); write_cell(tb.cell(r, 2), stats_semasa[f'pct_{k}' if k in ['abai','belum','batal'] else f'pct_{k}'], size=17)
-        write_cell(tb.cell(r, 3), f"{stats_kumulatif[k]:,}", size=17); write_cell(tb.cell(r, 4), stats_kumulatif[f'pct_{k}' if k in ['abai','belum','batal'] else f'pct_{k}'], size=17)
+        write_cell(tb.cell(r, 1), f"{stats_semasa[k]:,}", size=17)
+        write_cell(tb.cell(r, 2), stats_semasa[pct_key_map[k]], size=17)
+        write_cell(tb.cell(r, 3), f"{stats_kumulatif[k]:,}", size=17)
+        write_cell(tb.cell(r, 4), stats_kumulatif[pct_key_map[k]], size=17)
     
     for i, row in enumerate(tb.rows):
         for j, cell in enumerate(row.cells):
@@ -618,7 +640,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     if not df_graf.empty:
         sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
-        # Clean chart data
         df_g = df_graf.dropna(how='all', axis=1).dropna(how='all', axis=0)
         categories = [str(x).replace('.0', '') for x in df_g.iloc[:, 0].tolist()]
         series_names = df_g.columns[1:].tolist()
@@ -644,7 +665,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 series.format.fill.solid()
                 series.format.fill.fore_color.rgb = color
 
-        # Draw dashed line at year reset (where cat drops to 1 or 2)
         idx_reset = -1
         for i in range(1, len(categories)):
             if int(categories[i]) < int(categories[i-1]) and int(categories[i-1]) >= 50:
@@ -652,12 +672,12 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 break
         
         if idx_reset != -1:
-            plot_width = 10.0  # approximate width in inches
+            plot_width = 10.0
             x_pos = 0.4 + (plot_width / len(categories)) * idx_reset
             line = sl.shapes.add_shape(MSO_SHAPE.LINE, Inches(x_pos), Inches(1.5), Inches(x_pos), Inches(6.5))
             line.line.color.rgb = RGBColor(0, 0, 0)
             line.line.width = Pt(4)
-            line.line.dash_style = 7 # dashed
+            line.line.dash_style = 7
             
         add_bottom_banner(sl)
 
@@ -685,3 +705,5 @@ if uploaded_file:
         c1, c2 = st.columns(2)
         with c1: st.download_button("📥 Download Presentation (.pptx)", pptx_buffer, f"Selangor_Epi_Review_ME{epi_week:02d}_{year}.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", use_container_width=True)
         with c2: st.download_button("📥 Download Raw Data Lewat (.xlsx)", generate_lewat_excel(l24_r, l7_r), f"Senarai_Lewat_Notifikasi_ME{epi_week:02d}_{year}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+else:
+    st.info("⚠️ Please upload the Excel file. The presentation will automatically generate once uploaded.")
