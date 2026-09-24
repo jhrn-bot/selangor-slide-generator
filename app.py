@@ -14,7 +14,7 @@ from pptx.oxml.xmlchemy import OxmlElement
 from pptx.oxml.ns import qn
 
 # ---------------------------------------------------------
-# Page Configuration
+# Page Configuration & Constants
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Selangor Epi Review Slide Generator",
@@ -22,9 +22,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# ---------------------------------------------------------
-# Constants & Configuration
-# ---------------------------------------------------------
 GOOGLE_SLIDES_ID = "1QFVgrEPqgiDditxLQhHRLapQOqaCjZnt"
 WABAK_SHEET_ID = "1uVcFp4zSF_gIHdq1BedDFNpuQks0E5AxKJnHbXMsYJE"
 
@@ -169,7 +166,11 @@ def write_wabak_cell(cell, text, bold=True, align_left=False, size=13):
     if val_str.lower() in ["nan", "none", ""]:
         val_str = "-"
         
-    match = re.search(r'^(.*?)\s*(\(.*?\))$', val_str)
+    # Replace (Rsv) / (rsv) with capitalized (RSV)
+    val_str = re.sub(r'\(rsv\)', '(RSV)', val_str, flags=re.IGNORECASE)
+        
+    # Match only numeric parentheses counts (e.g. "422 (23)"), excluding abbreviations like "(RSV)"
+    match = re.search(r'^(.*?)\s*(\(\d+.*?\))$', val_str)
     if match and '(' in val_str and ')' in val_str:
         main_part = match.group(1).strip()
         paren_part = match.group(2).strip()
@@ -737,7 +738,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     p.font.size = Pt(9); p.font.bold = True; p.font.name = 'Calibri'; p.font.color.rgb = RGBColor(0, 0, 0) 
     p2 = txBox.text_frame.add_paragraph()
     p2.text = "*(Mati)"
-    p2.font.size = Pt(9); p2.font.bold = True; p.font.color.rgb = RGBColor(255, 0, 0); p2.font.name = 'Calibri' 
+    p2.font.size = Pt(9); p.font.bold = True; p.font.color.rgb = RGBColor(255, 0, 0); p2.font.name = 'Calibri' 
     
     bottom_banner = slide_penyakit.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.5), Inches(6.9), Inches(6.833), Inches(0.4))
     bottom_banner.fill.solid(); bottom_banner.fill.fore_color.rgb = NAVY; bottom_banner.line.fill.background()
@@ -1373,7 +1374,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 table.columns[c].width = Inches(0.9)
             table.columns[11].width = Inches(1.333)
 
-            # Single merge call across columns 2 to 10 in row 0
+            # Merge columns 2 to 10 in row 0 for district cumulative breakdown header
             table.cell(0, 2).merge(table.cell(0, 10))
 
             table.cell(0, 0).merge(table.cell(1, 0))
@@ -1448,7 +1449,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     return buffer
 
 # ---------------------------------------------------------
-# Streamlit UI Runner
+# UI Runner
 # ---------------------------------------------------------
 st.title("📊 Selangor Epi Review Slide Generator")
 st.markdown(f"**Target Output:** `ME {epi_week:02d} / {year}` *(Waktu Malaysia UTC+8)*")
