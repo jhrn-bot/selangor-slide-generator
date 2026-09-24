@@ -288,6 +288,11 @@ def fetch_graf_data():
                 raw_name = raw_headers[col_i]
                 clean_name = raw_name
                 raw_name_low = str(raw_name).lower().strip()
+                
+                # Exclude nan / empty header columns
+                if raw_name_low in ['nan', 'none', '', 'null'] or 'unnamed' in raw_name_low:
+                    continue
+                    
                 for key, val in HEADER_CLEAN_MAP.items():
                     if key in raw_name_low:
                         clean_name = val
@@ -707,34 +712,56 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             add_bottom_banner(sl)
 
     # --- Slide X: Tren Wabak Native Chart ---
-    if not df_graf.empty and len(df_graf.columns) > 1:
+    if not df_graf.empty and 'Minggu Epid' in df_graf.columns:
+        # Truncate at target epi_week for Year 2 (stopping chart at Epi Week 37)
+        has_reset = False
+        keep_indices = []
+        for idx, row in df_graf.iterrows():
+            try:
+                w_num = int(row['Minggu Epid'])
+                if idx > 0:
+                    prev_w_num = int(df_graf.iloc[idx-1]['Minggu Epid'])
+                    if w_num < prev_w_num and prev_w_num >= 40:
+                        has_reset = True
+                
+                if has_reset and w_num > epi_week:
+                    break
+                keep_indices.append(idx)
+            except ValueError:
+                keep_indices.append(idx)
+                
+        df_graf_clean = df_graf.loc[keep_indices].reset_index(drop=True)
+
         sl = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl, "Tren Wabak Mengikut Jenis Penyakit Berjangkit", f"ME01 /{year-1 if epi_week<5 else year} - ME {epi_week:02d} /{year}")
         
-        x_col = df_graf.columns[0]
-        categories = [str(x) for x in df_graf[x_col].tolist()]
-        series_cols = [c for c in df_graf.columns[1:] if not str(c).startswith('Unnamed')]
+        categories = [str(x) for x in df_graf_clean['Minggu Epid'].tolist()]
+        series_cols = [
+            c for c in df_graf_clean.columns 
+            if c != 'Minggu Epid' 
+            and str(c).lower().strip() not in ['nan', 'none', '', 'null'] 
+            and not str(c).startswith('Unnamed')
+        ]
         
         chart_data = CategoryChartData()
         chart_data.categories = categories
         for sn in series_cols:
-            series_vals = pd.to_numeric(df_graf[sn], errors='coerce').fillna(0).tolist()
+            series_vals = pd.to_numeric(df_graf_clean[sn], errors='coerce').fillna(0).tolist()
             chart_data.add_series(str(sn), series_vals)
             
         chart = sl.shapes.add_chart(
             XL_CHART_TYPE.COLUMN_STACKED_100, 
-            Inches(0.4), Inches(1.5), Inches(10), Inches(5.0), 
+            Inches(0.4), Inches(1.5), Inches(9.2), Inches(5.1), 
             chart_data
         ).chart
         
-        # Legend styling
+        # Legend styling - Explicit Right Placement & 8.5 pt Font
         chart.has_legend = True
         chart.legend.position = XL_LEGEND_POSITION.RIGHT
-        chart.legend.include_in_layout = False
-        chart.legend.font.size = Pt(10)
+        chart.legend.font.size = Pt(8.5)
         chart.legend.font.name = 'Calibri'
         
-        # Axis font styling & disable gridlines
+        # Axis font styling (10 pt) & disable gridlines
         val_axis = chart.value_axis
         val_axis.has_major_gridlines = False
         val_axis.has_minor_gridlines = False
@@ -745,13 +772,13 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         cat_axis.tick_labels.font.size = Pt(10)
         cat_axis.tick_labels.font.name = 'Calibri'
         
-        # Thicken bars
+        # Thicken bars (gap_width = 20)
         try:
-            chart.plots[0].gap_width = 30
+            chart.plots[0].gap_width = 20
         except:
             pass
         
-        # Colors
+        # Series Color Mapping
         for series in chart.series:
             sn = series.name.strip()
             color = DISEASE_COLORS.get(sn, None)
@@ -777,7 +804,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 pass
         
         if idx_reset != -1:
-            plot_width = 10.0
+            plot_width = 9.2
             x_pos = 0.4 + (plot_width / len(categories)) * idx_reset
             line = sl.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(1.5), Inches(x_pos), Inches(6.5))
             line.line.color.rgb = RGBColor(0, 0, 0)
