@@ -451,9 +451,24 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         l.fill.solid(); l.fill.fore_color.rgb = NAVY; l.line.fill.background()
         tb = sl.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(10), Inches(0.9))
         p = tb.text_frame.paragraphs[0]
-        p.text = t1; p.font.size, p.font.bold, p.font.color.rgb = Pt(28) if any(x in t1 for x in ["Senarai", "Bilangan", "Tren"]) else Pt(36), True, NAVY
+        p.text = t1
+        
+        # Title logic for size
+        if "Tanpa Wabak Vektor" in t1:
+            p.font.size = Pt(20)
+        elif any(x in t1 for x in ["Senarai", "Bilangan", "Tren"]):
+            p.font.size = Pt(28)
+        else:
+            p.font.size = Pt(36)
+            
+        p.font.bold = True
+        p.font.color.rgb = NAVY
+        
         p2 = tb.text_frame.add_paragraph()
-        p2.text = t2; p2.font.size, p2.font.bold, p2.font.color.rgb = Pt(14) if "Tempoh" in t2 else Pt(16), True, NAVY
+        p2.text = t2
+        p2.font.size = Pt(14) if "Tempoh" in t2 else Pt(16)
+        p2.font.bold = True
+        p2.font.color.rgb = NAVY
 
     # --- Slide 1: Title Slide ---
     slide1 = prs.slides[0] if len(prs.slides) > 0 else prs.slides.add_slide(prs.slide_layouts[6])
