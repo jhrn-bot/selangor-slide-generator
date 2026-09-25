@@ -384,6 +384,32 @@ def process_sampel_dataframe(df_sampel, target_epi_week, target_year):
     
     return clean_df.reset_index(drop=True), idx_reset
 
+def format_prestasi_val(val, col_idx, row_idx):
+    if pd.isna(val) or str(val).strip().upper() in ["NAN", "NONE", ""]:
+        return "-" if row_idx > 0 and col_idx >= 2 else ""
+    
+    val_str = str(val).strip()
+    
+    if col_idx in [3, 4] and row_idx > 0:
+        if val_str.endswith('%'):
+            return val_str
+        try:
+            num = float(val_str)
+            if num <= 1.0:
+                return f"{int(round(num * 100))}%"
+            else:
+                return f"{int(round(num))}%"
+        except ValueError:
+            return val_str
+            
+    if col_idx == 2 and row_idx > 0:
+        try:
+            return f"{int(round(float(val_str))):,}"
+        except ValueError:
+            return val_str
+            
+    return val_str
+
 # ---------------------------------------------------------
 # Data Fetchers
 # ---------------------------------------------------------
@@ -529,6 +555,18 @@ def fetch_survelan_sampel_data():
             continue
     return pd.DataFrame()
 
+def fetch_prestasi_klinik_data():
+    url = f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=S2WER&range=M35:Q42"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    try:
+        with urllib.request.urlopen(req) as resp:
+            raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
+            if not raw_df.empty:
+                return raw_df
+    except Exception as e:
+        st.warning(f"Note: Could not retrieve Prestasi Klinik data: {e}")
+    return pd.DataFrame()
+
 # ---------------------------------------------------------
 # Main Data Processing
 # ---------------------------------------------------------
@@ -644,7 +682,7 @@ def generate_lewat_excel(df_24h, df_7d):
 # ---------------------------------------------------------
 # Presentation Generator
 # ---------------------------------------------------------
-def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_wabak, df_bencana, df_graf, df_ili_sari, df_sampel, epi_week, year):
+def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_wabak, df_bencana, df_graf, df_ili_sari, df_sampel, df_prestasi, epi_week, year):
     try:
         prs = Presentation(fetch_google_slides_pptx(GOOGLE_SLIDES_ID))
     except:
@@ -681,7 +719,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             p.font.size = Pt(20)
         elif "Sampel Survelan" in t1 or "Sentinel Selangor" in t1 or "Tren Keputusan" in t1:
             p.font.size = Pt(19)
-        elif "Kadar konsultasi ILI & SARI" in t1 or "Kluster Influenza" in t1:
+        elif "Kadar konsultasi ILI & SARI" in t1 or "Kluster Influenza" in t1 or "Prestasi Penghantaran" in t1:
             p.font.size = Pt(24)
         elif any(x in t1 for x in ["Senarai", "Bilangan", "Tren"]):
             p.font.size = Pt(28)
@@ -1500,6 +1538,43 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             
         add_bottom_banner(sl_sampel)
 
+    # --- Slide X+4: Prestasi Penghantaran Sampel ILI/SARI oleh Klinik Sentinel ---
+    if not df_prestasi.empty:
+        sl_prestasi = prs.slides.add_slide(prs.slide_layouts[6])
+        add_slide_header(sl_prestasi, "Prestasi Penghantaran Sampel ILI/SARI oleh Klinik Sentinel", f"ME {epi_week:02d} / {year}")
+        
+        tb = sl_prestasi.shapes.add_table(len(df_prestasi), 5, Inches(0.8), Inches(1.6), Inches(11.733), Inches(4.8)).table
+        tb.columns[0].width = Inches(2.2)
+        tb.columns[1].width = Inches(2.7)
+        tb.columns[2].width = Inches(2.1)
+        tb.columns[3].width = Inches(2.533)
+        tb.columns[4].width = Inches(2.2)
+        
+        for r_i in range(len(df_prestasi)):
+            row_vals = df_prestasi.iloc[r_i].tolist()
+            is_last_row = (r_i == len(df_prestasi) - 1)
+            
+            if is_last_row:
+                tb.cell(r_i, 0).merge(tb.cell(r_i, 1))
+                write_cell(tb.cell(r_i, 0), "JUMLAH", bold=True, size=14)
+                for c_i in range(2, 5):
+                    v_raw = row_vals[c_i] if c_i < len(row_vals) else ""
+                    write_cell(tb.cell(r_i, c_i), format_prestasi_val(v_raw, c_i, r_i), bold=True, size=14)
+            else:
+                for c_i in range(5):
+                    v_raw = row_vals[c_i] if c_i < len(row_vals) else ""
+                    write_cell(tb.cell(r_i, c_i), format_prestasi_val(v_raw, c_i, r_i), bold=True, size=14)
+                    
+        for r_i, row in enumerate(tb.rows):
+            is_hdr_or_tot = (r_i == 0 or r_i == len(tb.rows) - 1)
+            for cell in row.cells:
+                set_cell_border(cell)
+                cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = LIGHT_GREY if is_hdr_or_tot else RGBColor(255, 255, 255)
+                
+        add_bottom_banner(sl_prestasi)
+
     buffer = io.BytesIO(); prs.save(buffer); buffer.seek(0)
     return buffer
 
@@ -1519,10 +1594,11 @@ if uploaded_file:
         df_g = fetch_graf_data()
         df_ili = fetch_ili_sari_data()
         df_sampel = fetch_survelan_sampel_data()
+        df_prestasi = fetch_prestasi_klinik_data()
         
         (t_rows, s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, l24_r, l7_r, df_w, df_ben) = load_and_process_data(uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14)
         
-        pptx_buffer = generate_pptx(s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, df_w, df_ben, df_g, df_ili, df_sampel, epi_week, year)
+        pptx_buffer = generate_pptx(s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, df_w, df_ben, df_g, df_ili, df_sampel, df_prestasi, epi_week, year)
         
         st.success(f"Successfully processed {t_rows:,} records. Slide deck is ready!")
 
