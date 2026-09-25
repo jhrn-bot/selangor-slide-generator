@@ -1156,7 +1156,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             
             plotArea.insert(plotArea.index(barChart) + 1, lineChart)
             
-            # Secondary valAx (Right)
+            # Secondary valAx (Right Y-Axis)
             sec_valAx = OxmlElement('c:valAx')
             sec_axId = OxmlElement('c:axId')
             sec_axId.set('val', sec_valAx_id)
