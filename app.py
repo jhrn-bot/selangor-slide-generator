@@ -451,7 +451,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         l.fill.solid(); l.fill.fore_color.rgb = NAVY; l.line.fill.background()
         tb = sl.shapes.add_textbox(Inches(2.4), Inches(0.35), Inches(10), Inches(0.9))
         p = tb.text_frame.paragraphs[0]
-        p.text = t1; p.font.size, p.font.bold, p.font.color.rgb = Pt(28) if "Senarai" in t1 or "Bilangan" in t1 else Pt(36), True, NAVY
+        p.text = t1; p.font.size, p.font.bold, p.font.color.rgb = Pt(28) if any(x in t1 for x in ["Senarai", "Bilangan", "Tren"]) else Pt(36), True, NAVY
         p2 = tb.text_frame.add_paragraph()
         p2.text = t2; p2.font.size, p2.font.bold, p2.font.color.rgb = Pt(14) if "Tempoh" in t2 else Pt(16), True, NAVY
 
@@ -731,7 +731,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 
         df_graf_clean = df_graf.loc[keep_indices].reset_index(drop=True)
 
-    # Subtitle for charts: always spans year-1 to year (e.g. ME01 /2025 - ME 37 /2026)
     chart_subtitle = f"ME01 /{year-1} - ME {epi_week:02d} /{year}"
 
     # --- Slide X: Tren Wabak Native Chart (All Diseases) ---
