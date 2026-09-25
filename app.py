@@ -102,6 +102,12 @@ DISEASE_COLORS = {
     'Konjunktivitis': RGBColor(157, 195, 230)                # Light Blue
 }
 
+SAMPEL_COLORS = {
+    'INFLUENZA A': RGBColor(146, 208, 80),                    # Green
+    'INFLUENZA B': RGBColor(68, 114, 196),                    # Cobalt Blue
+    'COVID-19': RGBColor(255, 192, 0)                         # Yellow / Gold
+}
+
 HEADER_CLEAN_MAP = {
     'denggi': 'Denggi',
     'malaria': 'Malaria',
@@ -399,6 +405,37 @@ def fetch_ili_sari_data():
         st.warning(f"Note: Could not retrieve ILI/SARI chart data: {e}")
         return pd.DataFrame()
 
+def fetch_survelan_sampel_data():
+    url = f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=AR1:AU120"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    try:
+        with urllib.request.urlopen(req) as resp:
+            raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
+            
+            if raw_df.empty or len(raw_df) < 2:
+                return pd.DataFrame()
+            
+            raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
+            data_df = raw_df.iloc[1:].copy()
+            
+            data_df = data_df.dropna(subset=[0])
+            data_df[0] = data_df[0].astype(str).str.strip()
+            data_df = data_df[data_df[0] != '']
+            
+            clean_dict = {'ME/TAHUN': data_df[0].tolist()}
+            
+            for col_i in range(1, len(raw_headers)):
+                h_name = raw_headers[col_i] if col_i < len(raw_headers) else f"Col_{col_i}"
+                if str(h_name).lower().strip() in ['nan', 'none', '', 'null'] or 'unnamed' in str(h_name).lower():
+                    continue
+                vals = pd.to_numeric(data_df[col_i], errors='coerce').fillna(0).tolist()
+                clean_dict[h_name] = vals
+                
+            return pd.DataFrame(clean_dict)
+    except Exception as e:
+        st.warning(f"Note: Could not retrieve Survelan Sampel chart data: {e}")
+        return pd.DataFrame()
+
 # ---------------------------------------------------------
 # Main Data Processing
 # ---------------------------------------------------------
@@ -515,7 +552,7 @@ def generate_lewat_excel(df_24h, df_7d):
 # Presentation Generator
 # ---------------------------------------------------------
 @st.cache_data
-def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_wabak, df_bencana, df_graf, df_ili_sari, epi_week, year):
+def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_wabak, df_bencana, df_graf, df_ili_sari, df_sampel, epi_week, year):
     try:
         prs = Presentation(fetch_google_slides_pptx(GOOGLE_SLIDES_ID))
     except:
@@ -786,7 +823,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 ij = i >= 2 and row.cells[1].text_frame.text.strip().upper() == 'JUMLAH'
                 for j, cell in enumerate(row.cells):
                     set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-                    cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i in [0, 1] or j in [0, 1] or ij else RGBColor(255,255,255)
+                    cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i==0 or j==0 or ij else RGBColor(255,255,255)
             add_bottom_banner(sl)
 
     # --- Slide 13+: Insiden/Bencana ---
@@ -816,7 +853,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 ij = i >= 2 and row.cells[0].text_frame.text.strip().upper() == 'JUMLAH'
                 for j, cell in enumerate(row.cells):
                     set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-                    cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i in [0, 1] or j == 0 or ij else RGBColor(255,255,255)
+                    cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i==0 or j==0 or ij else RGBColor(255,255,255)
             add_bottom_banner(sl)
 
     # Common Trend Chart Data Truncation Logic
@@ -1069,8 +1106,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         
         # Configure Combo Chart:
         # Series 0 (Bilangan Kluster ILI - Bars) -> Primary Left Y-Axis (0 - 80)
-        # Series 1 (Kadar Kemasukan SARI - Red Line) -> Primary Left Y-Axis (0 - 80)
-        # Series 2 (Kadar Konsultasi ILI - Green Line) -> Secondary Right Y-Axis (0 - 30)
+        # Series 1 (Kadar Kemasukan SARI - Red Line) & Series 2 (Kadar Konsultasi ILI - Green Line) -> Secondary Right Y-Axis (0 - 30)
         def configure_combo_ili_sari(chart_obj):
             plotArea = chart_obj.element.find(qn('c:chart')).find(qn('c:plotArea'))
             barChart = plotArea.find(qn('c:barChart'))
@@ -1079,21 +1115,18 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 return
                 
             catAx_id = plotArea.find(qn('c:catAx')).find(qn('c:axId')).get('val')
-            pri_valAx_id = plotArea.find(qn('c:valAx')).find(qn('c:axId')).get('val')
             sec_valAx_id = "98765432"
             
-            lineChart_pri = OxmlElement('c:lineChart')
-            lineChart_pri.append(OxmlElement('c:grouping'))
-            lineChart_pri.find(qn('c:grouping')).set('val', 'standard')
-            
-            lineChart_sec = OxmlElement('c:lineChart')
-            lineChart_sec.append(OxmlElement('c:grouping'))
-            lineChart_sec.find(qn('c:grouping')).set('val', 'standard')
+            lineChart = OxmlElement('c:lineChart')
+            lineChart.append(OxmlElement('c:grouping'))
+            lineChart.find(qn('c:grouping')).set('val', 'standard')
             
             for ser in list(barChart.findall(qn('c:ser'))):
                 idx_val = int(ser.find(qn('c:idx')).get('val'))
                 if idx_val in [1, 2]:
-                    # Remove markers/dots
+                    barChart.remove(ser)
+                    
+                    # Remove dots/markers
                     marker = ser.find(qn('c:marker'))
                     if marker is None:
                         marker = OxmlElement('c:marker')
@@ -1111,30 +1144,17 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                         ser.append(smooth)
                     smooth.set('val', '0')
                     
-                    if idx_val == 1: # Red Line (SARI) -> Primary Left Axis
-                        barChart.remove(ser)
-                        lineChart_pri.append(ser)
-                    elif idx_val == 2: # Green Line (ILI) -> Secondary Right Axis
-                        barChart.remove(ser)
-                        lineChart_sec.append(ser)
+                    lineChart.append(ser)
                     
-            # Connect LineChart_pri (SARI Red Line) to Primary Left Y-Axis
+            # Connect lineChart (SARI & ILI Lines) to Secondary Right Y-Axis (sec_valAx_id)
             axId1 = OxmlElement('c:axId')
             axId1.set('val', catAx_id)
             axId2 = OxmlElement('c:axId')
-            axId2.set('val', pri_valAx_id)
-            lineChart_pri.append(axId1)
-            lineChart_pri.append(axId2)
-            plotArea.insert(plotArea.index(barChart) + 1, lineChart_pri)
+            axId2.set('val', sec_valAx_id)
+            lineChart.append(axId1)
+            lineChart.append(axId2)
             
-            # Connect LineChart_sec (ILI Green Line) to Secondary Right Y-Axis
-            axId3 = OxmlElement('c:axId')
-            axId3.set('val', catAx_id)
-            axId4 = OxmlElement('c:axId')
-            axId4.set('val', sec_valAx_id)
-            lineChart_sec.append(axId3)
-            lineChart_sec.append(axId4)
-            plotArea.insert(plotArea.index(barChart) + 2, lineChart_sec)
+            plotArea.insert(plotArea.index(barChart) + 1, lineChart)
             
             # Secondary valAx (Right)
             sec_valAx = OxmlElement('c:valAx')
@@ -1206,8 +1226,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         cat_axis_is.tick_labels.font.name = 'Calibri'
         cat_axis_is.tick_labels.font.bold = True
 
-        # Right Y-Axis Title (Secondary: "Kadar Konsultasi ILI (%)") via OXML
-        set_sec_val_axis_title_oxml(chart_is, "Kadar Konsultasi ILI (%)", font_size=10, bold=True)
+        # Right Y-Axis Title (Secondary: "Kadar Konsultasi ILI / Kemasukan Kes SARI") via OXML
+        set_sec_val_axis_title_oxml(chart_is, "Kadar Konsultasi ILI / Kemasukan Kes SARI", font_size=10, bold=True)
         
         # Legend styling - Bottom
         chart_is.has_legend = True
@@ -1301,7 +1321,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         info_box.line.fill.background()
         
         p_info = info_box.text_frame.paragraphs[0]
-        p_info.text = "Peratus Reten Diisi Lengkap : 100%"
+        p_info.text = "Peratus Reten Diisi Lengkap :"
         p_info.font.size = Pt(11)
         p_info.font.name = 'Calibri'
         p_info.font.bold = True
@@ -1311,6 +1331,106 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         info_box.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
 
         add_bottom_banner(sl_is)
+
+    # --- Slide X+3: Tren Keputusan Sampel Survelan ILI/SARI ---
+    df_sampel_clean = pd.DataFrame()
+    if not df_sampel.empty and 'ME/TAHUN' in df_sampel.columns:
+        keep_indices = []
+        idx_reset = -1
+        for idx, row in df_sampel.iterrows():
+            val = str(row['ME/TAHUN']).strip()
+            if '/' in val:
+                parts = val.split('/')
+                try:
+                    w_num = int(parts[0])
+                    y_num = int(parts[1])
+                    
+                    if idx > 0:
+                        prev_val = str(df_sampel.iloc[idx-1]['ME/TAHUN']).strip()
+                        if '/' in prev_val:
+                            prev_parts = prev_val.split('/')
+                            prev_y = int(prev_parts[1])
+                            if y_num > prev_y:
+                                idx_reset = idx
+                                
+                    if y_num == year and w_num > epi_week:
+                        break
+                except ValueError:
+                    pass
+            keep_indices.append(idx)
+                
+        df_sampel_clean = df_sampel.loc[keep_indices].reset_index(drop=True)
+
+    if not df_sampel_clean.empty:
+        sl_sampel = prs.slides.add_slide(prs.slide_layouts[6])
+        add_slide_header(sl_sampel, "Tren Keputusan Sampel Survelan ILI/SARI dari Klinik& Hospital Sentinel Selangor", chart_subtitle)
+        
+        categories = [str(x) for x in df_sampel_clean['ME/TAHUN'].tolist()]
+        series_cols = [c for c in df_sampel_clean.columns if c != 'ME/TAHUN']
+        
+        chart_data_sampel = CategoryChartData()
+        chart_data_sampel.categories = categories
+        for sn in series_cols:
+            series_vals = pd.to_numeric(df_sampel_clean[sn], errors='coerce').fillna(0).tolist()
+            chart_data_sampel.add_series(str(sn), series_vals)
+            
+        chart_sampel = sl_sampel.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_STACKED_100, 
+            Inches(0.4), Inches(1.5), Inches(12.533), Inches(5.1), 
+            chart_data_sampel
+        ).chart
+        
+        chart_sampel.has_legend = True
+        chart_sampel.legend.position = XL_LEGEND_POSITION.BOTTOM
+        chart_sampel.legend.include_in_layout = False
+        chart_sampel.legend.font.size = Pt(10)
+        chart_sampel.legend.font.name = 'Calibri'
+        chart_sampel.legend.font.bold = True
+        
+        val_axis = chart_sampel.value_axis
+        val_axis.has_major_gridlines = False
+        val_axis.has_minor_gridlines = False
+        val_axis.format.line.fill.background()
+        val_axis.tick_labels.font.size = Pt(10)
+        val_axis.tick_labels.font.name = 'Calibri'
+        val_axis.tick_labels.font.bold = True
+        
+        cat_axis = chart_sampel.category_axis
+        cat_axis.format.line.fill.background()
+        cat_axis.tick_labels.font.size = Pt(10)
+        cat_axis.tick_labels.font.name = 'Calibri'
+        cat_axis.tick_labels.font.bold = True
+        
+        plotArea = chart_sampel.element.find(qn('c:chart')).find(qn('c:plotArea'))
+        for ax_tag in [qn('c:catAx'), qn('c:valAx')]:
+            for ax_elem in plotArea.findall(ax_tag):
+                remove_axis_line(ax_elem)
+        
+        try:
+            chart_sampel.plots[0].gap_width = 20
+        except:
+            pass
+        
+        for series in chart_sampel.series:
+            sn = series.name.strip().upper()
+            color = None
+            for k, c in SAMPEL_COLORS.items():
+                if k in sn or sn in k:
+                    color = c
+                    break
+            if color:
+                series.format.fill.solid()
+                series.format.fill.fore_color.rgb = color
+
+        if idx_reset != -1:
+            plot_width = 12.533
+            x_pos = 0.4 + (plot_width / len(categories)) * idx_reset
+            line_sampel = sl_sampel.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(1.5), Inches(x_pos), Inches(6.5))
+            line_sampel.line.color.rgb = RGBColor(0, 0, 0)
+            line_sampel.line.width = Pt(4)
+            line_sampel.line.dash_style = 7
+            
+        add_bottom_banner(sl_sampel)
 
     buffer = io.BytesIO(); prs.save(buffer); buffer.seek(0)
     return buffer
@@ -1330,10 +1450,11 @@ if uploaded_file:
     with st.spinner("Processing data and generating slides automatically..."):
         df_g = fetch_graf_data()
         df_ili = fetch_ili_sari_data()
+        df_sampel = fetch_survelan_sampel_data()
         
         (t_rows, s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, l24_r, l7_r, df_w, df_ben) = load_and_process_data(uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14)
         
-        pptx_buffer = generate_pptx(s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, df_w, df_ben, df_g, df_ili, epi_week, year)
+        pptx_buffer = generate_pptx(s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, df_w, df_ben, df_g, df_ili, df_sampel, epi_week, year)
         
         st.success(f"Successfully processed {t_rows:,} records. Slide deck is ready!")
 
