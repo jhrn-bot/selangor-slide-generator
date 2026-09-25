@@ -176,25 +176,6 @@ def parse_excel_date(val):
     try: return pd.to_datetime(val, errors='coerce').date()
     except: return None
 
-def parse_me_label(val):
-    val_str = str(val).strip()
-    if '/' in val_str:
-        parts = val_str.split('/')
-        if len(parts) == 2:
-            return val_str
-        elif len(parts) == 3:
-            d = parse_excel_date(val_str)
-            if d:
-                jan_1 = datetime.date(d.year, 1, 1)
-                jan_1_day = jan_1.isoweekday() % 7
-                first_sunday = jan_1 if jan_1_day == 0 else jan_1 + datetime.timedelta(days=(7 - jan_1_day))
-                if d < first_sunday:
-                    w = 1
-                else:
-                    w = ((d - first_sunday).days // 7) + 1
-                return f"{w}/{d.year}"
-    return val_str
-
 def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
     tcPr = cell._tc.get_or_add_tcPr()
     for line_type in ['a:lnL', 'a:lnR', 'a:lnT', 'a:lnB']:
@@ -325,6 +306,84 @@ def set_val_axis_title_oxml(chart, title_text, axis_index=0, font_size=10, bold=
     tx.append(rich)
     title_elem.append(tx)
 
+def process_sampel_dataframe(df_sampel, target_epi_week, target_year):
+    if df_sampel.empty:
+        return pd.DataFrame(), -1
+        
+    col0 = df_sampel.columns[0]
+    parsed_rows = []
+    current_year = target_year - 1
+    
+    for idx, row in df_sampel.iterrows():
+        val = str(row[col0]).strip()
+        w_num = None
+        y_num = None
+        
+        if '/' in val:
+            parts = val.split('/')
+            if len(parts) == 2:
+                try:
+                    w_num = int(parts[0])
+                    y_num = int(parts[1])
+                    if y_num < 100: y_num += 2000
+                except ValueError:
+                    pass
+            elif len(parts) == 3:
+                try:
+                    d = pd.to_datetime(val, dayfirst=True, errors='coerce')
+                    if not pd.isna(d):
+                        w_num = int(d.isocalendar().week)
+                        y_num = int(d.year)
+                except Exception:
+                    pass
+        else:
+            try:
+                w_num = int(float(val))
+            except ValueError:
+                pass
+                
+        if y_num is None and w_num is not None:
+            if idx > 0 and len(parsed_rows) > 0:
+                prev_w = parsed_rows[-1]['w_num']
+                prev_y = parsed_rows[-1]['y_num']
+                if prev_w is not None and prev_y is not None:
+                    if w_num < prev_w and prev_w >= 40:
+                        current_year = prev_y + 1
+                    else:
+                        current_year = prev_y
+            y_num = current_year
+        elif y_num is not None:
+            current_year = y_num
+            
+        if w_num is not None and y_num is not None:
+            parsed_rows.append({
+                'idx': idx,
+                'w_num': w_num,
+                'y_num': y_num,
+                'label': f"{w_num}/{y_num}",
+                'row': row
+            })
+            
+    keep_rows = []
+    idx_reset = -1
+    
+    for i, p in enumerate(parsed_rows):
+        if p['y_num'] == target_year and p['w_num'] > target_epi_week:
+            break
+            
+        if i > 0 and p['y_num'] > parsed_rows[i-1]['y_num']:
+            idx_reset = i
+            
+        keep_rows.append(p)
+        
+    if not keep_rows:
+        return pd.DataFrame(), -1
+        
+    clean_df = pd.DataFrame([k['row'] for k in keep_rows])
+    clean_df[col0] = [k['label'] for k in keep_rows]
+    
+    return clean_df.reset_index(drop=True), idx_reset
+
 # ---------------------------------------------------------
 # Data Fetchers
 # ---------------------------------------------------------
@@ -425,46 +484,50 @@ def fetch_ili_sari_data():
         return pd.DataFrame()
 
 def fetch_survelan_sampel_data():
-    url = f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=AR1:AU120"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    try:
-        with urllib.request.urlopen(req) as resp:
-            raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
-            
-            if raw_df.empty or len(raw_df) < 2:
-                return pd.DataFrame()
-            
-            raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
-            data_df = raw_df.iloc[1:].copy()
-            
-            # Clean categories in Col 0 (AR)
-            cat_raw = [parse_me_label(x) for x in data_df[0].tolist()]
-            clean_dict = {'ME/TAHUN': cat_raw}
-            
-            default_series = ['INFLUENZA A', 'INFLUENZA B', 'COVID-19']
-            
-            for col_i in range(1, len(data_df.columns)):
-                raw_h = raw_headers[col_i].strip() if col_i < len(raw_headers) else f"Col_{col_i}"
-                raw_upper = raw_h.upper()
+    urls = [
+        f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=AR1:AU120",
+        f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=ILIMakmal&range=C1:F120"
+    ]
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as resp:
+                raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
                 
-                if 'INFLUENZA A' in raw_upper or 'INF A' in raw_upper:
-                    col_name = 'INFLUENZA A'
-                elif 'INFLUENZA B' in raw_upper or 'INF B' in raw_upper:
-                    col_name = 'INFLUENZA B'
-                elif 'COVID' in raw_upper:
-                    col_name = 'COVID-19'
-                else:
-                    col_name = default_series[col_i - 1] if (col_i - 1) < len(default_series) else f"Series_{col_i}"
+                if raw_df.empty or len(raw_df) < 2:
+                    continue
+                
+                raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
+                data_df = raw_df.iloc[1:].copy()
+                
+                cat_vals = [str(x).strip() for x in data_df[0].tolist()]
+                clean_dict = {'ME/TAHUN': cat_vals}
+                
+                default_series = ['INFLUENZA A', 'INFLUENZA B', 'COVID-19']
+                
+                for col_i in range(1, len(data_df.columns)):
+                    raw_h = raw_headers[col_i].strip() if col_i < len(raw_headers) else f"Col_{col_i}"
+                    raw_upper = raw_h.upper()
                     
-                vals = pd.to_numeric(data_df[col_i], errors='coerce').fillna(0).tolist()
-                clean_dict[col_name] = vals
-                
-            res_df = pd.DataFrame(clean_dict)
-            res_df = res_df[res_df['ME/TAHUN'].astype(str).str.strip().str.upper().isin(['NAN', 'NONE', '', 'NULL']) == False]
-            return res_df.reset_index(drop=True)
-    except Exception as e:
-        st.warning(f"Note: Could not retrieve Survelan Sampel chart data: {e}")
-        return pd.DataFrame()
+                    if 'INFLUENZA A' in raw_upper or 'INF A' in raw_upper:
+                        col_name = 'INFLUENZA A'
+                    elif 'INFLUENZA B' in raw_upper or 'INF B' in raw_upper:
+                        col_name = 'INFLUENZA B'
+                    elif 'COVID' in raw_upper:
+                        col_name = 'COVID-19'
+                    else:
+                        col_name = default_series[col_i - 1] if (col_i - 1) < len(default_series) else f"Series_{col_i}"
+                        
+                    vals = pd.to_numeric(data_df[col_i], errors='coerce').fillna(0).tolist()
+                    clean_dict[col_name] = vals
+                    
+                res_df = pd.DataFrame(clean_dict)
+                res_df = res_df[res_df['ME/TAHUN'].astype(str).str.strip().str.upper().isin(['NAN', 'NONE', '', 'NULL']) == False]
+                if not res_df.empty:
+                    return res_df.reset_index(drop=True)
+        except Exception:
+            continue
+    return pd.DataFrame()
 
 # ---------------------------------------------------------
 # Main Data Processing
@@ -1360,38 +1423,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         add_bottom_banner(sl_is)
 
     # --- Slide X+3: Tren Keputusan Sampel Survelan ILI/SARI ---
-    df_sampel_clean = pd.DataFrame()
-    if not df_sampel.empty:
-        col0 = df_sampel.columns[0]
-        keep_indices = []
-        idx_reset = -1
-        for idx, row in df_sampel.iterrows():
-            val = str(row[col0]).strip()
-            if '/' in val:
-                parts = val.split('/')
-                try:
-                    w_num = int(parts[0])
-                    y_num = int(parts[1])
-                    if len(str(y_num)) == 2:
-                        y_num += 2000
-                    
-                    if idx > 0:
-                        prev_val = str(df_sampel.iloc[idx-1][col0]).strip()
-                        if '/' in prev_val:
-                            prev_parts = prev_val.split('/')
-                            prev_y = int(prev_parts[1])
-                            if len(str(prev_y)) == 2:
-                                prev_y += 2000
-                            if y_num > prev_y:
-                                idx_reset = idx
-                                
-                    if y_num == year and w_num > epi_week:
-                        break
-                except ValueError:
-                    pass
-            keep_indices.append(idx)
-                
-        df_sampel_clean = df_sampel.loc[keep_indices].reset_index(drop=True)
+    df_sampel_clean, idx_reset_sampel = process_sampel_dataframe(df_sampel, epi_week, year)
 
     if not df_sampel_clean.empty:
         sl_sampel = prs.slides.add_slide(prs.slide_layouts[6])
@@ -1458,9 +1490,9 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 series.format.fill.solid()
                 series.format.fill.fore_color.rgb = color
 
-        if idx_reset != -1:
+        if idx_reset_sampel != -1:
             plot_width = 12.533
-            x_pos = 0.4 + (plot_width / len(categories)) * idx_reset
+            x_pos = 0.4 + (plot_width / len(categories)) * idx_reset_sampel
             line_sampel = sl_sampel.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(1.5), Inches(x_pos), Inches(6.5))
             line_sampel.line.color.rgb = RGBColor(0, 0, 0)
             line_sampel.line.width = Pt(4)
