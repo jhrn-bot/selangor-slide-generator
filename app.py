@@ -237,6 +237,19 @@ def format_cell_stat(tot, swasta, zero_as_dash=True):
     if tot == 0: return "-" if zero_as_dash else "0"
     return f"{tot} ({swasta})" if swasta > 0 else f"{tot}"
 
+def remove_axis_line(axis_elem):
+    spPr = axis_elem.find(qn('c:spPr'))
+    if spPr is None:
+        spPr = OxmlElement('c:spPr')
+        axis_elem.append(spPr)
+    ln = spPr.find(qn('a:ln'))
+    if ln is None:
+        ln = OxmlElement('a:ln')
+        spPr.append(ln)
+    noFill = ln.find(qn('a:noFill'))
+    if noFill is None:
+        ln.append(OxmlElement('a:noFill'))
+
 # ---------------------------------------------------------
 # Data Fetchers
 # ---------------------------------------------------------
@@ -814,14 +827,21 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         val_axis = chart.value_axis
         val_axis.has_major_gridlines = False
         val_axis.has_minor_gridlines = False
+        val_axis.format.line.fill.background()
         val_axis.tick_labels.font.size = Pt(10)
         val_axis.tick_labels.font.name = 'Calibri'
         val_axis.tick_labels.font.bold = True
         
         cat_axis = chart.category_axis
+        cat_axis.format.line.fill.background()
         cat_axis.tick_labels.font.size = Pt(10)
         cat_axis.tick_labels.font.name = 'Calibri'
         cat_axis.tick_labels.font.bold = True
+        
+        plotArea = chart.element.find(qn('c:chart')).find(qn('c:plotArea'))
+        for ax_tag in [qn('c:catAx'), qn('c:valAx')]:
+            for ax_elem in plotArea.findall(ax_tag):
+                remove_axis_line(ax_elem)
         
         try:
             chart.plots[0].gap_width = 20
@@ -899,14 +919,21 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         val_axis_nv = chart_nv.value_axis
         val_axis_nv.has_major_gridlines = False
         val_axis_nv.has_minor_gridlines = False
+        val_axis_nv.format.line.fill.background()
         val_axis_nv.tick_labels.font.size = Pt(10)
         val_axis_nv.tick_labels.font.name = 'Calibri'
         val_axis_nv.tick_labels.font.bold = True
         
         cat_axis_nv = chart_nv.category_axis
+        cat_axis_nv.format.line.fill.background()
         cat_axis_nv.tick_labels.font.size = Pt(10)
         cat_axis_nv.tick_labels.font.name = 'Calibri'
         cat_axis_nv.tick_labels.font.bold = True
+        
+        plotArea_nv = chart_nv.element.find(qn('c:chart')).find(qn('c:plotArea'))
+        for ax_tag in [qn('c:catAx'), qn('c:valAx')]:
+            for ax_elem in plotArea_nv.findall(ax_tag):
+                remove_axis_line(ax_elem)
         
         try:
             chart_nv.plots[0].gap_width = 20
@@ -990,7 +1017,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         )
         chart_is = chart_shape.chart
         
-        # Convert Series 1 and 2 to Line Chart on Secondary Axis (with markers removed via OXML)
+        # Convert Series 1 and 2 to Line Chart on Secondary Axis (Non-wavy, straight segments)
         def convert_series_to_line_secondary(chart_obj, line_series_indices):
             plotArea = chart_obj.element.find(qn('c:chart')).find(qn('c:plotArea'))
             barChart = plotArea.find(qn('c:barChart'))
@@ -1010,7 +1037,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 if idx_val in line_series_indices:
                     barChart.remove(ser)
                     
-                    # Remove dots/markers from line series
+                    # Remove markers/dots from trend line
                     marker = ser.find(qn('c:marker'))
                     if marker is None:
                         marker = OxmlElement('c:marker')
@@ -1020,6 +1047,13 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                         symbol = OxmlElement('c:symbol')
                         marker.append(symbol)
                     symbol.set('val', 'none')
+                    
+                    # Set smooth = 0 (straight non-wavy line segments)
+                    smooth = ser.find(qn('c:smooth'))
+                    if smooth is None:
+                        smooth = OxmlElement('c:smooth')
+                        ser.append(smooth)
+                    smooth.set('val', '0')
                     
                     lineChart.append(ser)
                     
@@ -1076,10 +1110,11 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         chart_is.legend.font.name = 'Calibri'
         chart_is.legend.font.bold = True
         
-        # Disable major/minor gridlines on primary value axis
+        # Format primary axes line removal & fonts
         val_axis_is = chart_is.value_axis
         val_axis_is.has_major_gridlines = False
         val_axis_is.has_minor_gridlines = False
+        val_axis_is.format.line.fill.background()
         val_axis_is.tick_labels.font.size = Pt(10)
         val_axis_is.tick_labels.font.name = 'Calibri'
         val_axis_is.tick_labels.font.bold = True
@@ -1087,23 +1122,28 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         cat_axis_is = chart_is.category_axis
         cat_axis_is.has_major_gridlines = False
         cat_axis_is.has_minor_gridlines = False
+        cat_axis_is.format.line.fill.background()
         cat_axis_is.tick_labels.font.size = Pt(10)
         cat_axis_is.tick_labels.font.name = 'Calibri'
         cat_axis_is.tick_labels.font.bold = True
         
-        # Strictly remove any c:majorGridlines from all value axes (including secondary) in OXML
+        # Remove axis lines and gridlines from all axes in OXML (including secondary Y-axis)
         plotArea_is = chart_is.element.find(qn('c:chart')).find(qn('c:plotArea'))
         for valAx in plotArea_is.findall(qn('c:valAx')):
             grid = valAx.find(qn('c:majorGridlines'))
             if grid is not None:
                 valAx.remove(grid)
+            remove_axis_line(valAx)
+            
+        for catAx in plotArea_is.findall(qn('c:catAx')):
+            remove_axis_line(catAx)
                 
         try:
             chart_is.plots[0].gap_width = 30
         except:
             pass
             
-        # Format Series Colors & Ensure Markers Disabled
+        # Format Series Colors & Ensure Lines are Straight
         if len(chart_is.series) > 0:
             chart_is.series[0].format.fill.solid()
             chart_is.series[0].format.fill.fore_color.rgb = RGBColor(68, 114, 196)
@@ -1111,6 +1151,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         if len(chart_is.series) > 1:
             chart_is.series[1].format.line.color.rgb = RGBColor(255, 0, 0)
             chart_is.series[1].format.line.width = Pt(2.25)
+            if hasattr(chart_is.series[1], 'smooth'):
+                chart_is.series[1].smooth = False
             try:
                 chart_is.series[1].marker.style = XL_MARKER_STYLE.NONE
             except:
@@ -1119,6 +1161,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         if len(chart_is.series) > 2:
             chart_is.series[2].format.line.color.rgb = RGBColor(84, 130, 53)
             chart_is.series[2].format.line.width = Pt(2.25)
+            if hasattr(chart_is.series[2], 'smooth'):
+                chart_is.series[2].smooth = False
             try:
                 chart_is.series[2].marker.style = XL_MARKER_STYLE.NONE
             except:
