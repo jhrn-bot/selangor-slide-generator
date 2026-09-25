@@ -1146,7 +1146,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                     
                     lineChart.append(ser)
                     
-            # Connect lineChart (SARI & ILI Lines) to Secondary Right Y-Axis (sec_valAx_id)
+            # Connect lineChart (BOTH SARI & ILI Lines) to Secondary Right Y-Axis (sec_valAx_id)
             axId1 = OxmlElement('c:axId')
             axId1.set('val', catAx_id)
             axId2 = OxmlElement('c:axId')
