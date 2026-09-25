@@ -1449,7 +1449,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         info_box.line.fill.background()
         
         p_info = info_box.text_frame.paragraphs[0]
-        p_info.text = "Peratus Reten Diisi Lengkap :"
+        p_info.text = "Peratus Reten Diisi Lengkap : 100%"
         p_info.font.size = Pt(11)
         p_info.font.name = 'Calibri'
         p_info.font.bold = True
@@ -1556,14 +1556,14 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             
             if is_last_row:
                 tb.cell(r_i, 0).merge(tb.cell(r_i, 1))
-                write_cell(tb.cell(r_i, 0), "JUMLAH", bold=True, size=14)
+                write_cell(tb.cell(r_i, 0), "JUMLAH", bold=True, size=18)
                 for c_i in range(2, 5):
                     v_raw = row_vals[c_i] if c_i < len(row_vals) else ""
-                    write_cell(tb.cell(r_i, c_i), format_prestasi_val(v_raw, c_i, r_i), bold=True, size=14)
+                    write_cell(tb.cell(r_i, c_i), format_prestasi_val(v_raw, c_i, r_i), bold=True, size=18)
             else:
                 for c_i in range(5):
                     v_raw = row_vals[c_i] if c_i < len(row_vals) else ""
-                    write_cell(tb.cell(r_i, c_i), format_prestasi_val(v_raw, c_i, r_i), bold=True, size=14)
+                    write_cell(tb.cell(r_i, c_i), format_prestasi_val(v_raw, c_i, r_i), bold=True, size=18)
                     
         for r_i, row in enumerate(tb.rows):
             is_hdr_or_tot = (r_i == 0 or r_i == len(tb.rows) - 1)
