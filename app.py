@@ -176,6 +176,25 @@ def parse_excel_date(val):
     try: return pd.to_datetime(val, errors='coerce').date()
     except: return None
 
+def parse_me_label(val):
+    val_str = str(val).strip()
+    if '/' in val_str:
+        parts = val_str.split('/')
+        if len(parts) == 2:
+            return val_str
+        elif len(parts) == 3:
+            d = parse_excel_date(val_str)
+            if d:
+                jan_1 = datetime.date(d.year, 1, 1)
+                jan_1_day = jan_1.isoweekday() % 7
+                first_sunday = jan_1 if jan_1_day == 0 else jan_1 + datetime.timedelta(days=(7 - jan_1_day))
+                if d < first_sunday:
+                    w = 1
+                else:
+                    w = ((d - first_sunday).days // 7) + 1
+                return f"{w}/{d.year}"
+    return val_str
+
 def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
     tcPr = cell._tc.get_or_add_tcPr()
     for line_type in ['a:lnL', 'a:lnR', 'a:lnT', 'a:lnB']:
@@ -406,53 +425,46 @@ def fetch_ili_sari_data():
         return pd.DataFrame()
 
 def fetch_survelan_sampel_data():
-    urls = [
-        f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=AR1:AU120",
-        f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=ILIMakmal&range=C1:F120"
-    ]
-    for url in urls:
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as resp:
-                raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
+    url = f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=AR1:AU120"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    try:
+        with urllib.request.urlopen(req) as resp:
+            raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
+            
+            if raw_df.empty or len(raw_df) < 2:
+                return pd.DataFrame()
+            
+            raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
+            data_df = raw_df.iloc[1:].copy()
+            
+            # Clean categories in Col 0 (AR)
+            cat_raw = [parse_me_label(x) for x in data_df[0].tolist()]
+            clean_dict = {'ME/TAHUN': cat_raw}
+            
+            default_series = ['INFLUENZA A', 'INFLUENZA B', 'COVID-19']
+            
+            for col_i in range(1, len(data_df.columns)):
+                raw_h = raw_headers[col_i].strip() if col_i < len(raw_headers) else f"Col_{col_i}"
+                raw_upper = raw_h.upper()
                 
-                if raw_df.empty or len(raw_df) < 2:
-                    continue
-                
-                raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
-                data_df = raw_df.iloc[1:].copy()
-                
-                data_df[0] = data_df[0].astype(str).str.strip()
-                data_df = data_df[data_df[0].str.contains('/', na=False)]
-                
-                if data_df.empty:
-                    continue
+                if 'INFLUENZA A' in raw_upper or 'INF A' in raw_upper:
+                    col_name = 'INFLUENZA A'
+                elif 'INFLUENZA B' in raw_upper or 'INF B' in raw_upper:
+                    col_name = 'INFLUENZA B'
+                elif 'COVID' in raw_upper:
+                    col_name = 'COVID-19'
+                else:
+                    col_name = default_series[col_i - 1] if (col_i - 1) < len(default_series) else f"Series_{col_i}"
                     
-                clean_dict = {'ME/TAHUN': data_df[0].tolist()}
+                vals = pd.to_numeric(data_df[col_i], errors='coerce').fillna(0).tolist()
+                clean_dict[col_name] = vals
                 
-                for col_i in range(1, len(raw_headers)):
-                    col_name = str(raw_headers[col_i]).strip()
-                    col_upper = col_name.upper()
-                    
-                    if col_upper in ['NAN', 'NONE', '', 'NULL'] or 'UNNAMED' in col_upper:
-                        continue
-                        
-                    if 'INFLUENZA A' in col_upper or 'INF A' in col_upper:
-                        col_name = 'INFLUENZA A'
-                    elif 'INFLUENZA B' in col_upper or 'INF B' in col_upper:
-                        col_name = 'INFLUENZA B'
-                    elif 'COVID' in col_upper:
-                        col_name = 'COVID-19'
-                        
-                    vals = pd.to_numeric(data_df[col_i], errors='coerce').fillna(0).tolist()
-                    clean_dict[col_name] = vals
-                    
-                res_df = pd.DataFrame(clean_dict)
-                if not res_df.empty:
-                    return res_df
-        except Exception:
-            continue
-    return pd.DataFrame()
+            res_df = pd.DataFrame(clean_dict)
+            res_df = res_df[res_df['ME/TAHUN'].astype(str).str.strip().str.upper().isin(['NAN', 'NONE', '', 'NULL']) == False]
+            return res_df.reset_index(drop=True)
+    except Exception as e:
+        st.warning(f"Note: Could not retrieve Survelan Sampel chart data: {e}")
+        return pd.DataFrame()
 
 # ---------------------------------------------------------
 # Main Data Processing
@@ -1360,12 +1372,16 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 try:
                     w_num = int(parts[0])
                     y_num = int(parts[1])
+                    if len(str(y_num)) == 2:
+                        y_num += 2000
                     
                     if idx > 0:
                         prev_val = str(df_sampel.iloc[idx-1][col0]).strip()
                         if '/' in prev_val:
                             prev_parts = prev_val.split('/')
                             prev_y = int(prev_parts[1])
+                            if len(str(prev_y)) == 2:
+                                prev_y += 2000
                             if y_num > prev_y:
                                 idx_reset = idx
                                 
