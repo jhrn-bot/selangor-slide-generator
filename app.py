@@ -1067,9 +1067,10 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         )
         chart_is = chart_shape.chart
         
-        # Combo Chart Axes configuration:
+        # Configure Combo Chart:
         # Series 0 (Bilangan Kluster ILI - Bars) -> Primary Left Y-Axis (0 - 80)
-        # Series 1 (Kadar Kemasukan SARI - Red Line) & Series 2 (Kadar Konsultasi ILI - Green Line) -> Secondary Right Y-Axis (0 - 30)
+        # Series 1 (Kadar Kemasukan SARI - Red Line) -> Primary Left Y-Axis (0 - 80)
+        # Series 2 (Kadar Konsultasi ILI - Green Line) -> Secondary Right Y-Axis (0 - 30)
         def configure_combo_ili_sari(chart_obj):
             plotArea = chart_obj.element.find(qn('c:chart')).find(qn('c:plotArea'))
             barChart = plotArea.find(qn('c:barChart'))
@@ -1078,18 +1079,21 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 return
                 
             catAx_id = plotArea.find(qn('c:catAx')).find(qn('c:axId')).get('val')
+            pri_valAx_id = plotArea.find(qn('c:valAx')).find(qn('c:axId')).get('val')
             sec_valAx_id = "98765432"
             
-            lineChart = OxmlElement('c:lineChart')
-            lineChart.append(OxmlElement('c:grouping'))
-            lineChart.find(qn('c:grouping')).set('val', 'standard')
+            lineChart_pri = OxmlElement('c:lineChart')
+            lineChart_pri.append(OxmlElement('c:grouping'))
+            lineChart_pri.find(qn('c:grouping')).set('val', 'standard')
+            
+            lineChart_sec = OxmlElement('c:lineChart')
+            lineChart_sec.append(OxmlElement('c:grouping'))
+            lineChart_sec.find(qn('c:grouping')).set('val', 'standard')
             
             for ser in list(barChart.findall(qn('c:ser'))):
                 idx_val = int(ser.find(qn('c:idx')).get('val'))
                 if idx_val in [1, 2]:
-                    barChart.remove(ser)
-                    
-                    # Remove dots/markers
+                    # Remove markers/dots
                     marker = ser.find(qn('c:marker'))
                     if marker is None:
                         marker = OxmlElement('c:marker')
@@ -1107,17 +1111,30 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                         ser.append(smooth)
                     smooth.set('val', '0')
                     
-                    lineChart.append(ser)
+                    if idx_val == 1: # Red Line (SARI) -> Primary Left Axis
+                        barChart.remove(ser)
+                        lineChart_pri.append(ser)
+                    elif idx_val == 2: # Green Line (ILI) -> Secondary Right Axis
+                        barChart.remove(ser)
+                        lineChart_sec.append(ser)
                     
-            # Connect lineChart (SARI & ILI Lines) to Secondary Right Y-Axis (sec_valAx_id)
+            # Connect LineChart_pri (SARI Red Line) to Primary Left Y-Axis
             axId1 = OxmlElement('c:axId')
             axId1.set('val', catAx_id)
             axId2 = OxmlElement('c:axId')
-            axId2.set('val', sec_valAx_id)
-            lineChart.append(axId1)
-            lineChart.append(axId2)
+            axId2.set('val', pri_valAx_id)
+            lineChart_pri.append(axId1)
+            lineChart_pri.append(axId2)
+            plotArea.insert(plotArea.index(barChart) + 1, lineChart_pri)
             
-            plotArea.insert(plotArea.index(barChart) + 1, lineChart)
+            # Connect LineChart_sec (ILI Green Line) to Secondary Right Y-Axis
+            axId3 = OxmlElement('c:axId')
+            axId3.set('val', catAx_id)
+            axId4 = OxmlElement('c:axId')
+            axId4.set('val', sec_valAx_id)
+            lineChart_sec.append(axId3)
+            lineChart_sec.append(axId4)
+            plotArea.insert(plotArea.index(barChart) + 2, lineChart_sec)
             
             # Secondary valAx (Right)
             sec_valAx = OxmlElement('c:valAx')
