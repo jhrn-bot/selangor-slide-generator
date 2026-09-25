@@ -1301,7 +1301,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         info_box.line.fill.background()
         
         p_info = info_box.text_frame.paragraphs[0]
-        p_info.text = "Peratus Reten Diisi Lengkap :"
+        p_info.text = "Peratus Reten Diisi Lengkap : 100%"
         p_info.font.size = Pt(11)
         p_info.font.name = 'Calibri'
         p_info.font.bold = True
