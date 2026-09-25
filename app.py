@@ -587,6 +587,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         
         if "Tanpa Wabak Vektor" in t1:
             p.font.size = Pt(20)
+        elif "Kadar konsultasi ILI & SARI" in t1 or "Kluster Influenza" in t1:
+            p.font.size = Pt(24)
         elif any(x in t1 for x in ["Senarai", "Bilangan", "Tren"]):
             p.font.size = Pt(28)
         else:
