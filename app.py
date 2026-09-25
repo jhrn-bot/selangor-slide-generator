@@ -103,9 +103,9 @@ DISEASE_COLORS = {
 }
 
 SAMPEL_COLORS = {
-    'INFLUENZA A': RGBColor(146, 208, 80),                    # Green
+    'INFLUENZA A': RGBColor(146, 208, 80),                    # Soft Lime Green
     'INFLUENZA B': RGBColor(68, 114, 196),                    # Cobalt Blue
-    'COVID-19': RGBColor(255, 192, 0)                         # Yellow / Gold
+    'COVID-19': RGBColor(255, 192, 0)                         # Gold / Yellow
 }
 
 HEADER_CLEAN_MAP = {
@@ -410,29 +410,29 @@ def fetch_survelan_sampel_data():
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as resp:
-            raw_df = pd.read_csv(io.BytesIO(resp.read()))
+            raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
             
-            if raw_df.empty:
+            if raw_df.empty or len(raw_df) < 2:
                 return pd.DataFrame()
             
-            cols = list(raw_df.columns)
-            clean_df = pd.DataFrame()
+            raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
+            data_df = raw_df.iloc[1:].copy()
             
-            me_col = cols[0]
-            clean_df['ME/TAHUN'] = raw_df[me_col].astype(str).str.strip()
+            data_df[0] = data_df[0].astype(str).str.strip()
+            data_df = data_df[data_df[0].str.contains('/', na=False)]
             
-            clean_df = clean_df[
-                clean_df['ME/TAHUN'].notna() & 
-                (clean_df['ME/TAHUN'] != '') & 
-                (clean_df['ME/TAHUN'].str.lower() != 'nan') & 
-                (clean_df['ME/TAHUN'].str.contains('/'))
-            ]
+            if data_df.empty:
+                return pd.DataFrame()
+                
+            clean_dict = {'ME/TAHUN': data_df[0].tolist()}
             
-            indices = clean_df.index
-            
-            for col_i in range(1, len(cols)):
-                col_name = str(cols[col_i]).strip()
+            for col_i in range(1, len(raw_headers)):
+                col_name = str(raw_headers[col_i]).strip()
                 col_upper = col_name.upper()
+                
+                if col_upper in ['NAN', 'NONE', '', 'NULL'] or 'UNNAMED' in col_upper:
+                    continue
+                    
                 if 'INFLUENZA A' in col_upper or 'INF A' in col_upper:
                     col_name = 'INFLUENZA A'
                 elif 'INFLUENZA B' in col_upper or 'INF B' in col_upper:
@@ -440,9 +440,10 @@ def fetch_survelan_sampel_data():
                 elif 'COVID' in col_upper:
                     col_name = 'COVID-19'
                     
-                clean_df[col_name] = pd.to_numeric(raw_df.loc[indices, cols[col_i]], errors='coerce').fillna(0).values
+                vals = pd.to_numeric(data_df[col_i], errors='coerce').fillna(0).tolist()
+                clean_dict[col_name] = vals
                 
-            return clean_df.reset_index(drop=True)
+            return pd.DataFrame(clean_dict)
     except Exception as e:
         st.warning(f"Note: Could not retrieve Survelan Sampel chart data: {e}")
         return pd.DataFrame()
@@ -598,7 +599,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         
         if "Tanpa Wabak Vektor" in t1:
             p.font.size = Pt(20)
-        elif "Sampel Survelan" in t1 or "Sentinel Selangor" in t1:
+        elif "Sampel Survelan" in t1 or "Sentinel Selangor" in t1 or "Tren Keputusan" in t1:
             p.font.size = Pt(19)
         elif "Kadar konsultasi ILI & SARI" in t1 or "Kluster Influenza" in t1:
             p.font.size = Pt(24)
@@ -1424,7 +1425,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             sn = series.name.strip().upper()
             color = None
             if 'INFLUENZA A' in sn or 'INF A' in sn:
-                color = RGBColor(146, 208, 80) # Soft Lime Green
+                color = RGBColor(146, 208, 80) # Lime Green
             elif 'INFLUENZA B' in sn or 'INF B' in sn:
                 color = RGBColor(68, 114, 196) # Cobalt Blue
             elif 'COVID' in sn:
