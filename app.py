@@ -406,47 +406,53 @@ def fetch_ili_sari_data():
         return pd.DataFrame()
 
 def fetch_survelan_sampel_data():
-    url = f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=AR1:AU120"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    try:
-        with urllib.request.urlopen(req) as resp:
-            raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
-            
-            if raw_df.empty or len(raw_df) < 2:
-                return pd.DataFrame()
-            
-            raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
-            data_df = raw_df.iloc[1:].copy()
-            
-            data_df[0] = data_df[0].astype(str).str.strip()
-            data_df = data_df[data_df[0].str.contains('/', na=False)]
-            
-            if data_df.empty:
-                return pd.DataFrame()
+    urls = [
+        f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=AR1:AU120",
+        f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=ILIMakmal&range=C1:F120"
+    ]
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as resp:
+                raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
                 
-            clean_dict = {'ME/TAHUN': data_df[0].tolist()}
-            
-            for col_i in range(1, len(raw_headers)):
-                col_name = str(raw_headers[col_i]).strip()
-                col_upper = col_name.upper()
+                if raw_df.empty or len(raw_df) < 2:
+                    continue
                 
-                if col_upper in ['NAN', 'NONE', '', 'NULL'] or 'UNNAMED' in col_upper:
+                raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
+                data_df = raw_df.iloc[1:].copy()
+                
+                data_df[0] = data_df[0].astype(str).str.strip()
+                data_df = data_df[data_df[0].str.contains('/', na=False)]
+                
+                if data_df.empty:
                     continue
                     
-                if 'INFLUENZA A' in col_upper or 'INF A' in col_upper:
-                    col_name = 'INFLUENZA A'
-                elif 'INFLUENZA B' in col_upper or 'INF B' in col_upper:
-                    col_name = 'INFLUENZA B'
-                elif 'COVID' in col_upper:
-                    col_name = 'COVID-19'
-                    
-                vals = pd.to_numeric(data_df[col_i], errors='coerce').fillna(0).tolist()
-                clean_dict[col_name] = vals
+                clean_dict = {'ME/TAHUN': data_df[0].tolist()}
                 
-            return pd.DataFrame(clean_dict)
-    except Exception as e:
-        st.warning(f"Note: Could not retrieve Survelan Sampel chart data: {e}")
-        return pd.DataFrame()
+                for col_i in range(1, len(raw_headers)):
+                    col_name = str(raw_headers[col_i]).strip()
+                    col_upper = col_name.upper()
+                    
+                    if col_upper in ['NAN', 'NONE', '', 'NULL'] or 'UNNAMED' in col_upper:
+                        continue
+                        
+                    if 'INFLUENZA A' in col_upper or 'INF A' in col_upper:
+                        col_name = 'INFLUENZA A'
+                    elif 'INFLUENZA B' in col_upper or 'INF B' in col_upper:
+                        col_name = 'INFLUENZA B'
+                    elif 'COVID' in col_upper:
+                        col_name = 'COVID-19'
+                        
+                    vals = pd.to_numeric(data_df[col_i], errors='coerce').fillna(0).tolist()
+                    clean_dict[col_name] = vals
+                    
+                res_df = pd.DataFrame(clean_dict)
+                if not res_df.empty:
+                    return res_df
+        except Exception:
+            continue
+    return pd.DataFrame()
 
 # ---------------------------------------------------------
 # Main Data Processing
@@ -563,7 +569,6 @@ def generate_lewat_excel(df_24h, df_7d):
 # ---------------------------------------------------------
 # Presentation Generator
 # ---------------------------------------------------------
-@st.cache_data
 def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, lewat_24h_df, lewat_7d_df, df_wabak, df_bencana, df_graf, df_ili_sari, df_sampel, epi_week, year):
     try:
         prs = Presentation(fetch_google_slides_pptx(GOOGLE_SLIDES_ID))
@@ -1344,11 +1349,12 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
     # --- Slide X+3: Tren Keputusan Sampel Survelan ILI/SARI ---
     df_sampel_clean = pd.DataFrame()
-    if not df_sampel.empty and 'ME/TAHUN' in df_sampel.columns:
+    if not df_sampel.empty:
+        col0 = df_sampel.columns[0]
         keep_indices = []
         idx_reset = -1
         for idx, row in df_sampel.iterrows():
-            val = str(row['ME/TAHUN']).strip()
+            val = str(row[col0]).strip()
             if '/' in val:
                 parts = val.split('/')
                 try:
@@ -1356,7 +1362,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                     y_num = int(parts[1])
                     
                     if idx > 0:
-                        prev_val = str(df_sampel.iloc[idx-1]['ME/TAHUN']).strip()
+                        prev_val = str(df_sampel.iloc[idx-1][col0]).strip()
                         if '/' in prev_val:
                             prev_parts = prev_val.split('/')
                             prev_y = int(prev_parts[1])
@@ -1375,8 +1381,9 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         sl_sampel = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl_sampel, "Tren Keputusan Sampel Survelan ILI/SARI dari Klinik& Hospital Sentinel Selangor", chart_subtitle)
         
-        categories = [str(x) for x in df_sampel_clean['ME/TAHUN'].tolist()]
-        series_cols = [c for c in df_sampel_clean.columns if c != 'ME/TAHUN']
+        col0 = df_sampel_clean.columns[0]
+        categories = [str(x) for x in df_sampel_clean[col0].tolist()]
+        series_cols = [c for c in df_sampel_clean.columns if c != col0]
         
         chart_data_sampel = CategoryChartData()
         chart_data_sampel.categories = categories
