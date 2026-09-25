@@ -13,7 +13,7 @@ from pptx.util import Inches, Pt
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.oxml.ns import qn
 from pptx.chart.data import CategoryChartData
-from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION, XL_MARKER_STYLE
 
 # ---------------------------------------------------------
 # Page Configuration & Constants
@@ -306,7 +306,6 @@ def fetch_graf_data():
         return pd.DataFrame()
 
 def fetch_ili_sari_data():
-    # Fetch range AM1:AP120 from Sheet23 in ILI/SARI Google Sheet
     url = f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=AM1:AP120"
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
@@ -319,7 +318,6 @@ def fetch_ili_sari_data():
             raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
             data_df = raw_df.iloc[1:].copy()
             
-            # Col 0: ME (Minggu Epid)
             data_df[0] = pd.to_numeric(data_df[0], errors='coerce')
             data_df = data_df.dropna(subset=[0])
             data_df[0] = data_df[0].astype(int).astype(str)
@@ -974,18 +972,14 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         add_slide_header(sl_is, "Tren Kluster Influenza dan Kadar konsultasi ILI & SARI di Selangor", chart_subtitle)
         
         categories = [str(x) for x in df_ili_clean['Minggu Epid'].tolist()]
-        
-        # Series names in order
         series_cols = [c for c in df_ili_clean.columns if c != 'Minggu Epid']
         
         chart_data_is = CategoryChartData()
         chart_data_is.categories = categories
         
-        # Add Series 0: Bilangan Kluster ILI (Column)
         col_series_name = series_cols[0] if len(series_cols) > 0 else 'Bilangan Kluster ILI'
         chart_data_is.add_series(str(col_series_name), pd.to_numeric(df_ili_clean[col_series_name], errors='coerce').fillna(0).tolist())
         
-        # Add Series 1 & 2: SARI & ILI Lines
         for sn in series_cols[1:]:
             chart_data_is.add_series(str(sn), pd.to_numeric(df_ili_clean[sn], errors='coerce').fillna(0).tolist())
             
@@ -996,7 +990,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         )
         chart_is = chart_shape.chart
         
-        # Convert Series 1 and 2 to Line Chart on Secondary Axis
+        # Convert Series 1 and 2 to Line Chart on Secondary Axis (with markers removed via OXML)
         def convert_series_to_line_secondary(chart_obj, line_series_indices):
             plotArea = chart_obj.element.find(qn('c:chart')).find(qn('c:plotArea'))
             barChart = plotArea.find(qn('c:barChart'))
@@ -1015,6 +1009,18 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 idx_val = int(ser.find(qn('c:idx')).get('val'))
                 if idx_val in line_series_indices:
                     barChart.remove(ser)
+                    
+                    # Remove dots/markers from line series
+                    marker = ser.find(qn('c:marker'))
+                    if marker is None:
+                        marker = OxmlElement('c:marker')
+                        ser.append(marker)
+                    symbol = marker.find(qn('c:symbol'))
+                    if symbol is None:
+                        symbol = OxmlElement('c:symbol')
+                        marker.append(symbol)
+                    symbol.set('val', 'none')
+                    
                     lineChart.append(ser)
                     
             axId1 = OxmlElement('c:axId')
@@ -1070,6 +1076,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         chart_is.legend.font.name = 'Calibri'
         chart_is.legend.font.bold = True
         
+        # Disable major/minor gridlines on primary value axis
         val_axis_is = chart_is.value_axis
         val_axis_is.has_major_gridlines = False
         val_axis_is.has_minor_gridlines = False
@@ -1078,30 +1085,44 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         val_axis_is.tick_labels.font.bold = True
         
         cat_axis_is = chart_is.category_axis
+        cat_axis_is.has_major_gridlines = False
+        cat_axis_is.has_minor_gridlines = False
         cat_axis_is.tick_labels.font.size = Pt(10)
         cat_axis_is.tick_labels.font.name = 'Calibri'
         cat_axis_is.tick_labels.font.bold = True
         
+        # Strictly remove any c:majorGridlines from all value axes (including secondary) in OXML
+        plotArea_is = chart_is.element.find(qn('c:chart')).find(qn('c:plotArea'))
+        for valAx in plotArea_is.findall(qn('c:valAx')):
+            grid = valAx.find(qn('c:majorGridlines'))
+            if grid is not None:
+                valAx.remove(grid)
+                
         try:
             chart_is.plots[0].gap_width = 30
         except:
             pass
             
-        # Format Series Colors
-        # Series 0 (Column): Soft Cobalt Blue
+        # Format Series Colors & Ensure Markers Disabled
         if len(chart_is.series) > 0:
             chart_is.series[0].format.fill.solid()
             chart_is.series[0].format.fill.fore_color.rgb = RGBColor(68, 114, 196)
             
-        # Series 1 (Line): Merah
         if len(chart_is.series) > 1:
             chart_is.series[1].format.line.color.rgb = RGBColor(255, 0, 0)
             chart_is.series[1].format.line.width = Pt(2.25)
+            try:
+                chart_is.series[1].marker.style = XL_MARKER_STYLE.NONE
+            except:
+                pass
             
-        # Series 2 (Line): Hijau Olive
         if len(chart_is.series) > 2:
             chart_is.series[2].format.line.color.rgb = RGBColor(84, 130, 53)
             chart_is.series[2].format.line.width = Pt(2.25)
+            try:
+                chart_is.series[2].marker.style = XL_MARKER_STYLE.NONE
+            except:
+                pass
 
         # Dashed Year Reset Line
         idx_reset = -1
