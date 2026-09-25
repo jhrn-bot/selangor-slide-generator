@@ -410,28 +410,39 @@ def fetch_survelan_sampel_data():
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as resp:
-            raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
+            raw_df = pd.read_csv(io.BytesIO(resp.read()))
             
-            if raw_df.empty or len(raw_df) < 2:
+            if raw_df.empty:
                 return pd.DataFrame()
             
-            raw_headers = [str(x).strip() for x in raw_df.iloc[0].tolist()]
-            data_df = raw_df.iloc[1:].copy()
+            cols = list(raw_df.columns)
+            clean_df = pd.DataFrame()
             
-            data_df = data_df.dropna(subset=[0])
-            data_df[0] = data_df[0].astype(str).str.strip()
-            data_df = data_df[data_df[0] != '']
+            me_col = cols[0]
+            clean_df['ME/TAHUN'] = raw_df[me_col].astype(str).str.strip()
             
-            clean_dict = {'ME/TAHUN': data_df[0].tolist()}
+            clean_df = clean_df[
+                clean_df['ME/TAHUN'].notna() & 
+                (clean_df['ME/TAHUN'] != '') & 
+                (clean_df['ME/TAHUN'].str.lower() != 'nan') & 
+                (clean_df['ME/TAHUN'].str.contains('/'))
+            ]
             
-            for col_i in range(1, len(raw_headers)):
-                h_name = raw_headers[col_i] if col_i < len(raw_headers) else f"Col_{col_i}"
-                if str(h_name).lower().strip() in ['nan', 'none', '', 'null'] or 'unnamed' in str(h_name).lower():
-                    continue
-                vals = pd.to_numeric(data_df[col_i], errors='coerce').fillna(0).tolist()
-                clean_dict[h_name] = vals
+            indices = clean_df.index
+            
+            for col_i in range(1, len(cols)):
+                col_name = str(cols[col_i]).strip()
+                col_upper = col_name.upper()
+                if 'INFLUENZA A' in col_upper or 'INF A' in col_upper:
+                    col_name = 'INFLUENZA A'
+                elif 'INFLUENZA B' in col_upper or 'INF B' in col_upper:
+                    col_name = 'INFLUENZA B'
+                elif 'COVID' in col_upper:
+                    col_name = 'COVID-19'
+                    
+                clean_df[col_name] = pd.to_numeric(raw_df.loc[indices, cols[col_i]], errors='coerce').fillna(0).values
                 
-            return pd.DataFrame(clean_dict)
+            return clean_df.reset_index(drop=True)
     except Exception as e:
         st.warning(f"Note: Could not retrieve Survelan Sampel chart data: {e}")
         return pd.DataFrame()
@@ -1412,10 +1423,13 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         for series in chart_sampel.series:
             sn = series.name.strip().upper()
             color = None
-            for k, c in SAMPEL_COLORS.items():
-                if k in sn or sn in k:
-                    color = c
-                    break
+            if 'INFLUENZA A' in sn or 'INF A' in sn:
+                color = RGBColor(146, 208, 80) # Soft Lime Green
+            elif 'INFLUENZA B' in sn or 'INF B' in sn:
+                color = RGBColor(68, 114, 196) # Cobalt Blue
+            elif 'COVID' in sn:
+                color = RGBColor(255, 192, 0) # Gold / Yellow
+                
             if color:
                 series.format.fill.solid()
                 series.format.fill.fore_color.rgb = color
