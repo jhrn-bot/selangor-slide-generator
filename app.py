@@ -823,7 +823,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 ij = i >= 2 and row.cells[1].text_frame.text.strip().upper() == 'JUMLAH'
                 for j, cell in enumerate(row.cells):
                     set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-                    cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i==0 or j==0 or ij else RGBColor(255,255,255)
+                    cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i in [0, 1] or j in [0, 1] or ij else RGBColor(255,255,255)
             add_bottom_banner(sl)
 
     # --- Slide 13+: Insiden/Bencana ---
@@ -853,7 +853,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 ij = i >= 2 and row.cells[0].text_frame.text.strip().upper() == 'JUMLAH'
                 for j, cell in enumerate(row.cells):
                     set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-                    cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i==0 or j==0 or ij else RGBColor(255,255,255)
+                    cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i in [0, 1] or j == 0 or ij else RGBColor(255,255,255)
             add_bottom_banner(sl)
 
     # Common Trend Chart Data Truncation Logic
