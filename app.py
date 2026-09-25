@@ -250,6 +250,58 @@ def remove_axis_line(axis_elem):
     if noFill is None:
         ln.append(OxmlElement('a:noFill'))
 
+def set_sec_val_axis_title_oxml(chart, title_text, font_size=10, bold=True):
+    plotArea = chart.element.find(qn('c:chart')).find(qn('c:plotArea'))
+    valAxes = plotArea.findall(qn('c:valAx'))
+    if len(valAxes) < 2:
+        return
+    sec_valAx = valAxes[1]
+    
+    title_elem = sec_valAx.find(qn('c:title'))
+    if title_elem is None:
+        title_elem = OxmlElement('c:title')
+        sec_valAx.append(title_elem)
+    else:
+        title_elem.clear()
+        
+    tx = OxmlElement('c:tx')
+    rich = OxmlElement('c:rich')
+    bodyPr = OxmlElement('a:bodyPr')
+    bodyPr.set('rot', '-5400000') # Rotated -90 degrees
+    bodyPr.set('vert', 'horz')
+    rich.append(bodyPr)
+    rich.append(OxmlElement('a:lstStyle'))
+    
+    p = OxmlElement('a:p')
+    pPr = OxmlElement('a:pPr')
+    defRPr = OxmlElement('a:defRPr')
+    defRPr.set('sz', str(int(font_size * 100)))
+    defRPr.set('b', '1' if bold else '0')
+    defRPr.set('bld', '1' if bold else '0')
+    pPr.append(defRPr)
+    p.append(pPr)
+    
+    r = OxmlElement('a:r')
+    rPr = OxmlElement('a:rPr')
+    rPr.set('sz', str(int(font_size * 100)))
+    rPr.set('b', '1' if bold else '0')
+    rPr.set('bld', '1' if bold else '0')
+    
+    solidFill = OxmlElement('a:solidFill')
+    srgbClr = OxmlElement('a:srgbClr')
+    srgbClr.set('val', '1B365D') # NAVY
+    solidFill.append(srgbClr)
+    rPr.append(solidFill)
+    
+    r.append(rPr)
+    t = OxmlElement('a:t')
+    t.text = title_text
+    r.append(t)
+    p.append(r)
+    rich.append(p)
+    tx.append(rich)
+    title_elem.append(tx)
+
 # ---------------------------------------------------------
 # Data Fetchers
 # ---------------------------------------------------------
@@ -1017,8 +1069,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         )
         chart_is = chart_shape.chart
         
-        # Convert Series 1 and 2 to Line Chart on Secondary Axis (Non-wavy, straight segments)
-        def convert_series_to_line_secondary(chart_obj, line_series_indices):
+        # Configure Combo Chart: Both Line series (SARI & ILI) on Primary (Left) Axis; Column (Kluster) on Secondary (Right) Axis
+        def configure_combo_ili_sari(chart_obj, line_series_indices):
             plotArea = chart_obj.element.find(qn('c:chart')).find(qn('c:plotArea'))
             barChart = plotArea.find(qn('c:barChart'))
             
@@ -1026,6 +1078,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 return
                 
             catAx_id = plotArea.find(qn('c:catAx')).find(qn('c:axId')).get('val')
+            pri_valAx_id = plotArea.find(qn('c:valAx')).find(qn('c:axId')).get('val')
             sec_valAx_id = "98765432"
             
             lineChart = OxmlElement('c:lineChart')
@@ -1037,7 +1090,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 if idx_val in line_series_indices:
                     barChart.remove(ser)
                     
-                    # Remove markers/dots from trend line
+                    # Remove dots/markers
                     marker = ser.find(qn('c:marker'))
                     if marker is None:
                         marker = OxmlElement('c:marker')
@@ -1060,9 +1113,14 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             axId1 = OxmlElement('c:axId')
             axId1.set('val', catAx_id)
             axId2 = OxmlElement('c:axId')
-            axId2.set('val', sec_valAx_id)
+            axId2.set('val', pri_valAx_id) # Connect lineChart to Primary Left Y-Axis
             lineChart.append(axId1)
             lineChart.append(axId2)
+            
+            # Move BarChart (Series 0) to Secondary Right Y-Axis
+            barChart_axIds = barChart.findall(qn('c:axId'))
+            if len(barChart_axIds) >= 2:
+                barChart_axIds[1].set('val', sec_valAx_id)
             
             plotArea.insert(plotArea.index(barChart) + 1, lineChart)
             
@@ -1100,18 +1158,18 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
 
         if len(series_cols) > 1:
             line_indices = list(range(1, len(series_cols)))
-            convert_series_to_line_secondary(chart_is, line_indices)
+            configure_combo_ili_sari(chart_is, line_indices)
             
-        # Legend styling - Bottom
-        chart_is.has_legend = True
-        chart_is.legend.position = XL_LEGEND_POSITION.BOTTOM
-        chart_is.legend.include_in_layout = False
-        chart_is.legend.font.size = Pt(9.5)
-        chart_is.legend.font.name = 'Calibri'
-        chart_is.legend.font.bold = True
-        
-        # Format primary axes line removal & fonts
+        # Left Y-Axis Title (Primary)
         val_axis_is = chart_is.value_axis
+        val_axis_is.has_title = True
+        val_axis_is.axis_title.text_frame.text = "Kadar Konsultasi ILI / Kemasukan Kes SARI"
+        p_left_title = val_axis_is.axis_title.text_frame.paragraphs[0]
+        p_left_title.font.size = Pt(10)
+        p_left_title.font.name = 'Calibri'
+        p_left_title.font.bold = True
+        p_left_title.font.color.rgb = NAVY
+        
         val_axis_is.has_major_gridlines = False
         val_axis_is.has_minor_gridlines = False
         val_axis_is.format.line.fill.background()
@@ -1119,13 +1177,33 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         val_axis_is.tick_labels.font.name = 'Calibri'
         val_axis_is.tick_labels.font.bold = True
         
+        # Bottom X-Axis Title
         cat_axis_is = chart_is.category_axis
+        cat_axis_is.has_title = True
+        cat_axis_is.axis_title.text_frame.text = "Minggu Epid"
+        p_x_title = cat_axis_is.axis_title.text_frame.paragraphs[0]
+        p_x_title.font.size = Pt(10)
+        p_x_title.font.name = 'Calibri'
+        p_x_title.font.bold = True
+        p_x_title.font.color.rgb = NAVY
+        
         cat_axis_is.has_major_gridlines = False
         cat_axis_is.has_minor_gridlines = False
         cat_axis_is.format.line.fill.background()
         cat_axis_is.tick_labels.font.size = Pt(10)
         cat_axis_is.tick_labels.font.name = 'Calibri'
         cat_axis_is.tick_labels.font.bold = True
+
+        # Right Y-Axis Title (Secondary) via OXML
+        set_sec_val_axis_title_oxml(chart_is, "Bilangan Kluster", font_size=10, bold=True)
+        
+        # Legend styling - Bottom
+        chart_is.has_legend = True
+        chart_is.legend.position = XL_LEGEND_POSITION.BOTTOM
+        chart_is.legend.include_in_layout = False
+        chart_is.legend.font.size = Pt(10)
+        chart_is.legend.font.name = 'Calibri'
+        chart_is.legend.font.bold = True
         
         # Remove axis lines and gridlines from all axes in OXML (including secondary Y-axis)
         plotArea_is = chart_is.element.find(qn('c:chart')).find(qn('c:plotArea'))
@@ -1134,6 +1212,22 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             if grid is not None:
                 valAx.remove(grid)
             remove_axis_line(valAx)
+            
+            # Format tick labels font to 10pt Bold
+            txPr = OxmlElement('c:txPr')
+            bodyPr = OxmlElement('a:bodyPr')
+            txPr.append(bodyPr)
+            txPr.append(OxmlElement('a:lstStyle'))
+            p_lbl = OxmlElement('a:p')
+            pPr_lbl = OxmlElement('a:pPr')
+            defRPr_lbl = OxmlElement('a:defRPr')
+            defRPr_lbl.set('sz', '1000') # 10 pt
+            defRPr_lbl.set('b', '1')    # bold
+            defRPr_lbl.set('bld', '1')
+            pPr_lbl.append(defRPr_lbl)
+            p_lbl.append(pPr_lbl)
+            txPr.append(p_lbl)
+            valAx.append(txPr)
             
         for catAx in plotArea_is.findall(qn('c:catAx')):
             remove_axis_line(catAx)
@@ -1149,7 +1243,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             chart_is.series[0].format.fill.fore_color.rgb = RGBColor(68, 114, 196)
             
         if len(chart_is.series) > 1:
-            chart_is.series[1].format.line.color.rgb = RGBColor(255, 0, 0)
+            chart_is.series[1].format.line.color.rgb = RGBColor(255, 0, 0) # Merah SARI
             chart_is.series[1].format.line.width = Pt(2.25)
             if hasattr(chart_is.series[1], 'smooth'):
                 chart_is.series[1].smooth = False
@@ -1159,7 +1253,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 pass
             
         if len(chart_is.series) > 2:
-            chart_is.series[2].format.line.color.rgb = RGBColor(84, 130, 53)
+            chart_is.series[2].format.line.color.rgb = RGBColor(84, 130, 53) # Hijau ILI
             chart_is.series[2].format.line.width = Pt(2.25)
             if hasattr(chart_is.series[2], 'smooth'):
                 chart_is.series[2].smooth = False
