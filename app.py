@@ -1109,7 +1109,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                     
                     lineChart.append(ser)
                     
-            # Connect lineChart to Secondary Right Y-Axis (sec_valAx_id)
+            # Connect lineChart (SARI & ILI Lines) to Secondary Right Y-Axis (sec_valAx_id)
             axId1 = OxmlElement('c:axId')
             axId1.set('val', catAx_id)
             axId2 = OxmlElement('c:axId')
@@ -1189,8 +1189,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         cat_axis_is.tick_labels.font.name = 'Calibri'
         cat_axis_is.tick_labels.font.bold = True
 
-        # Right Y-Axis Title (Secondary: "Kadar Konsultasi ILI / Kemasukan Kes SARI") via OXML
-        set_sec_val_axis_title_oxml(chart_is, "Kadar Konsultasi ILI / Kemasukan Kes SARI", font_size=10, bold=True)
+        # Right Y-Axis Title (Secondary: "Kadar Konsultasi ILI (%)") via OXML
+        set_sec_val_axis_title_oxml(chart_is, "Kadar Konsultasi ILI (%)", font_size=10, bold=True)
         
         # Legend styling - Bottom
         chart_is.has_legend = True
