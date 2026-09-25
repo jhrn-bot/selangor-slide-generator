@@ -254,17 +254,17 @@ def remove_axis_line(axis_elem):
     if noFill is None:
         ln.append(OxmlElement('a:noFill'))
 
-def set_sec_val_axis_title_oxml(chart, title_text, font_size=10, bold=True):
+def set_val_axis_title_oxml(chart, title_text, axis_index=0, font_size=10, bold=True):
     plotArea = chart.element.find(qn('c:chart')).find(qn('c:plotArea'))
     valAxes = plotArea.findall(qn('c:valAx'))
-    if len(valAxes) < 2:
+    if len(valAxes) <= axis_index:
         return
-    sec_valAx = valAxes[1]
+    valAx = valAxes[axis_index]
     
-    title_elem = sec_valAx.find(qn('c:title'))
+    title_elem = valAx.find(qn('c:title'))
     if title_elem is None:
         title_elem = OxmlElement('c:title')
-        sec_valAx.append(title_elem)
+        valAx.append(title_elem)
     else:
         title_elem.clear()
         
@@ -1192,16 +1192,10 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         if len(series_cols) > 1:
             configure_combo_ili_sari(chart_is)
             
-        # Left Y-Axis Title (Primary: "Bilangan Kluster")
-        val_axis_is = chart_is.value_axis
-        val_axis_is.has_title = True
-        val_axis_is.axis_title.text_frame.text = "Bilangan Kluster"
-        p_left_title = val_axis_is.axis_title.text_frame.paragraphs[0]
-        p_left_title.font.size = Pt(10)
-        p_left_title.font.name = 'Calibri'
-        p_left_title.font.bold = True
-        p_left_title.font.color.rgb = NAVY
+        # Set Left Y-Axis Title (Primary: "Bilangan Kluster") via OXML
+        set_val_axis_title_oxml(chart_is, "Bilangan Kluster", axis_index=0, font_size=10, bold=True)
         
+        val_axis_is = chart_is.value_axis
         val_axis_is.has_major_gridlines = False
         val_axis_is.has_minor_gridlines = False
         val_axis_is.format.line.fill.background()
@@ -1226,8 +1220,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         cat_axis_is.tick_labels.font.name = 'Calibri'
         cat_axis_is.tick_labels.font.bold = True
 
-        # Right Y-Axis Title (Secondary: "Kadar Konsultasi ILI / Kemasukan Kes SARI") via OXML
-        set_sec_val_axis_title_oxml(chart_is, "Kadar Konsultasi ILI / Kemasukan Kes SARI", font_size=10, bold=True)
+        # Set Right Y-Axis Title (Secondary: "Kadar Konsultasi ILI / Kemasukan Kes SARI") via OXML
+        set_val_axis_title_oxml(chart_is, "Kadar Konsultasi ILI / Kemasukan Kes SARI", axis_index=1, font_size=10, bold=True)
         
         # Legend styling - Bottom
         chart_is.has_legend = True
