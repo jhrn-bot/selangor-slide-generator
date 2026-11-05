@@ -593,9 +593,42 @@ def fetch_prestasi_klinik_data():
 # ---------------------------------------------------------
 # Main Data Processing
 # ---------------------------------------------------------
+def read_enotifikasi(raw):
+    """Baca fail e-Notifikasi (bytes) walaupun format sebenarnya bukan .xlsx tulen."""
+    if not raw:
+        raise ValueError("Fail kosong. Muat turun semula dari e-Notifikasi.")
+
+    buf = io.BytesIO(raw)
+    head = raw[:8]
+
+    # .xlsx sebenar (zip)
+    if head[:2] == b"PK":
+        return pd.read_excel(buf, engine="openpyxl")
+
+    # Format OLE: .xls lama ATAU .xlsx yang dilindungi kata laluan
+    if head == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        try:
+            return pd.read_excel(buf, engine="xlrd")
+        except Exception:
+            raise ValueError(
+                "Fail ini .xls lama atau dilindungi kata laluan. "
+                "Buka dalam Excel, buang kata laluan, kemudian Save As .xlsx."
+            )
+
+    start = raw[:2048].lstrip().lower()
+    # HTML bertopeng .xls/.xlsx
+    if start.startswith((b"<html", b"<!doctype", b"<table", b"<meta")):
+        tables = pd.read_html(io.BytesIO(raw))
+        return max(tables, key=len)
+    if start.startswith(b"<?xml"):
+        raise ValueError("Fail XML Spreadsheet 2003. Buka dalam Excel dan Save As .xlsx.")
+
+    # Anggap CSV
+    return pd.read_csv(io.BytesIO(raw), encoding="utf-8-sig", sep=None, engine="python")
+
 @st.cache_data
-def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
-    df = pd.read_excel(file)
+def load_and_process_data(file_bytes, target_me, inclusion_tuple, exclusion_tuple):
+    df = read_enotifikasi(file_bytes)
     c_me, c_bc, c_bi, c_bp, c_br, c_bt, c_cd, c_dt, c_dx, c_dy = df.columns[5], df.columns[54], df.columns[60], df.columns[67], df.columns[69], df.columns[71], df.columns[81], df.columns[123], df.columns[127], df.columns[128]
 
     df_clean = df[df[c_dt].isin(VALID_DISTRICTS)].copy()
@@ -1625,7 +1658,11 @@ if uploaded_file:
         df_w = fetch_wabak_data()
         df_ben = fetch_bencana_data()
         
-        (t_rows, s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, l24_r, l7_r) = load_and_process_data(uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14)
+        try:
+            (t_rows, s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, l24_r, l7_r) = load_and_process_data(uploaded_file.getvalue(), epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14)
+        except ValueError as e:
+            st.error(str(e))
+            st.stop()
         
         pptx_buffer = generate_pptx(s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, df_w, df_ben, df_g, df_ili, df_sampel, df_prestasi, epi_week, year)
         
