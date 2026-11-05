@@ -4,6 +4,7 @@ import os
 import re
 import urllib.parse
 import urllib.request
+import zipfile
 import pandas as pd
 import streamlit as st
 from pptx import Presentation
@@ -603,7 +604,25 @@ def read_enotifikasi(raw):
 
     # .xlsx sebenar (zip)
     if head[:2] == b"PK":
-        return pd.read_excel(buf, engine="openpyxl")
+        if not zipfile.is_zipfile(buf):
+            # Cuba baiki: buang data lebihan selepas rekod penutup zip (EOCD)
+            idx = raw.rfind(b"PK\x05\x06")
+            repaired = False
+            if idx != -1 and len(raw) >= idx + 22:
+                comment_len = int.from_bytes(raw[idx + 20: idx + 22], "little")
+                candidate = raw[: idx + 22 + comment_len]
+                if zipfile.is_zipfile(io.BytesIO(candidate)):
+                    raw, repaired = candidate, True
+            if not repaired:
+                raise ValueError(
+                    f"Fail Excel rosak atau tidak lengkap (saiz diterima: {len(raw):,} bait). "
+                    "Muat turun semula dari e-Notifikasi, pastikan muat turun habis sepenuhnya, "
+                    "kemudian buka dalam Excel dan Save As .xlsx sebelum muat naik."
+                )
+        try:
+            return pd.read_excel(io.BytesIO(raw), engine="openpyxl")
+        except zipfile.BadZipFile:
+            raise ValueError("Fail .xlsx rosak. Buka dalam Excel, Save As .xlsx baharu, dan muat naik semula.")
 
     # Format OLE: .xls lama ATAU .xlsx yang dilindungi kata laluan
     if head == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
