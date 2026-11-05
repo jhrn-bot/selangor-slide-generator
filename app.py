@@ -2,6 +2,7 @@ import datetime
 import io
 import os
 import re
+import urllib.parse
 import urllib.request
 import pandas as pd
 import streamlit as st
@@ -27,6 +28,9 @@ st.set_page_config(
 GOOGLE_SLIDES_ID = "1QFVgrEPqgiDditxLQhHRLapQOqaCjZnt"
 WABAK_SHEET_ID = "1uVcFp4zSF_gIHdq1BedDFNpuQks0E5AxKJnHbXMsYJE"
 BENCANA_SHEET_ID = "1Fp6IORRfdWSJCTC8vqSSoQz6RpCpNXHzO6jj0tHEf2c"
+BENCANA_SHEET_NAME = "SWER"
+BENCANA_RANGE = "A2:N"
+BENCANA_HEADER_ROWS = 1   # bilangan baris header dalam julat (baris 2 = header daerah). Tukar ke 0 jika A2 sudah baris data.
 CHART_SHEET_ID = "1SMu8z0MONnxkduZEaRyVNrEnH7KkvnJ9EjuVxSi3WOY"
 ILI_SARI_SHEET_ID = "1l9hK5USh1ajbuOC_bwY_R_8T1cmCL-E9c4fqGo5pyTg"
 
@@ -430,14 +434,33 @@ def fetch_wabak_data():
 
 @st.cache_data(ttl=600)
 def fetch_bencana_data():
-    req = urllib.request.Request(f"https://docs.google.com/spreadsheets/d/{BENCANA_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=table%202026", headers={'User-Agent': 'Mozilla/5.0'})
+    """Ambil jadual Insiden/Bencana dari sheet SWER, julat A2:N (14 lajur)."""
+    params = urllib.parse.urlencode({
+        'tqx': 'out:csv',
+        'sheet': BENCANA_SHEET_NAME,
+        'range': BENCANA_RANGE,
+        'headers': 0,          # jangan biar gviz makan baris pertama sebagai header
+    })
+    url = f"https://docs.google.com/spreadsheets/d/{BENCANA_SHEET_ID}/gviz/tq?{params}"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as resp:
-            df_sheet = pd.read_csv(io.BytesIO(resp.read()), header=None)
-            df_ah_au = df_sheet.iloc[2:, 33:47].copy()
-            df_ah_au = df_ah_au.dropna(subset=[df_ah_au.columns[0]])
-            return df_ah_au[df_ah_au.iloc[:, 0].astype(str).str.strip() != '']
-    except: return pd.DataFrame()
+            raw = pd.read_csv(io.BytesIO(resp.read()), header=None, dtype=str)
+
+        if raw.shape[1] < 14:
+            st.warning(f"Data bencana: lajur kurang daripada 14 (dapat {raw.shape[1]}). Semak sheet {BENCANA_SHEET_NAME}.")
+            return pd.DataFrame()
+
+        df = raw.iloc[BENCANA_HEADER_ROWS:, :14].copy()
+        df = df.dropna(subset=[df.columns[0]])
+        df = df[df.iloc[:, 0].astype(str).str.strip() != '']
+
+        # 3.0 -> 3 ; "5.0 (2.0)" -> "5 (2)"
+        df = df.map(lambda v: re.sub(r'\b(\d+)\.0+\b', r'\1', v) if isinstance(v, str) else v)
+        return df.reset_index(drop=True)
+    except Exception as e:
+        st.warning(f"Note: Could not retrieve data Insiden/Bencana: {e}")
+        return pd.DataFrame()
 
 def fetch_graf_data():
     url = f"https://docs.google.com/spreadsheets/d/{CHART_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=GRAF%20WABAK%20S2WER&range=B2:AD120"
@@ -669,7 +692,9 @@ def load_and_process_data(file, target_me, inclusion_tuple, exclusion_tuple):
     df_24h_raw = df_lewat[df_lewat[c_dx].isin(DIAG_TEMPOH_24H) & (df_lewat['DIFF_DAYS'] > 2)]
     df_7d_raw = df_lewat[df_lewat[c_dx].isin(DIAG_TEMPOH_7D) & (df_lewat['DIFF_DAYS'] > 7)]
 
-    return (len(df), stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, agg_lewat(df_24h_raw), agg_lewat(df_7d_raw), df_24h_raw, df_7d_raw, fetch_wabak_data(), fetch_bencana_data())
+    # NOTA: data Wabak & Bencana (Google Sheet) sengaja TIDAK diambil di sini
+    # supaya tidak terperangkap dalam cache tanpa TTL fungsi ini.
+    return (len(df), stats_semasa, stats_kumulatif, df_penyakit, df_district, df_belum_ct, df_hep_ct, df_dn_ct, df_dn_exc_ct, df_hep_dn_ct, agg_lewat(df_24h_raw), agg_lewat(df_7d_raw), df_24h_raw, df_7d_raw)
 
 def generate_lewat_excel(df_24h, df_7d):
     out = io.BytesIO()
@@ -1595,8 +1620,12 @@ if uploaded_file:
         df_ili = fetch_ili_sari_data()
         df_sampel = fetch_survelan_sampel_data()
         df_prestasi = fetch_prestasi_klinik_data()
+
+        # Data Google Sheet (TTL 10 minit) diambil di luar fungsi cache Excel
+        df_w = fetch_wabak_data()
+        df_ben = fetch_bencana_data()
         
-        (t_rows, s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, l24_r, l7_r, df_w, df_ben) = load_and_process_data(uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14)
+        (t_rows, s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, l24_r, l7_r) = load_and_process_data(uploaded_file, epi_week, INCLUSION_DIAGNOSES, EXCLUSION_DIAGNOSES_14)
         
         pptx_buffer = generate_pptx(s_sem, s_kum, df_peny, df_dist, df_b_ct, df_h_ct, df_dn, df_dn_exc, df_h_dn, l24, l7, df_w, df_ben, df_g, df_ili, df_sampel, df_prestasi, epi_week, year)
         
