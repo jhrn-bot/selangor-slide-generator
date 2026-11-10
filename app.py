@@ -35,6 +35,12 @@ BENCANA_HEADER_ROWS = 1   # bilangan baris header dalam julat (baris 2 = header 
 CHART_SHEET_ID = "1SMu8z0MONnxkduZEaRyVNrEnH7KkvnJ9EjuVxSi3WOY"
 ILI_SARI_SHEET_ID = "1l9hK5USh1ajbuOC_bwY_R_8T1cmCL-E9c4fqGo5pyTg"
 
+# --- QR CODE (Slide 1, kanan bawah) ---
+# Letak fail QR di folder yang sama dengan skrip ini (root repo GitHub).
+# Nama fail yang dicari (tak sensitif huruf besar/kecil), ikut turutan.
+QR_FILENAMES = ["qr.png", "qr.jpg", "qr.jpeg", "qrcode.png", "qr_code.png", "qr code.png"]
+QR_SIZE_INCH = 1.3
+
 VALID_DISTRICTS = [
     'GOMBAK', 'HULU LANGAT', 'HULU SELANGOR', 'KLANG', 
     'KUALA LANGAT', 'KUALA SELANGOR', 'PETALING', 
@@ -180,6 +186,38 @@ def parse_excel_date(val):
     except: pass
     try: return pd.to_datetime(val, errors='coerce').date()
     except: return None
+
+def cari_fail_qr():
+    """
+    Cari fail gambar QR di folder skrip dan folder kerja (tak sensitif huruf besar/kecil).
+    1) Cuba nama dalam QR_FILENAMES ikut turutan.
+    2) Jika tiada, ambil mana-mana fail gambar yang namanya mengandungi 'qr'.
+    Pulangkan laluan fail atau None.
+    """
+    try:
+        base_dirs = [os.path.dirname(os.path.abspath(__file__)), os.getcwd()]
+    except NameError:
+        base_dirs = [os.getcwd()]
+
+    seen = []
+    for d in base_dirs:
+        if d not in seen:
+            seen.append(d)
+
+    for d in seen:
+        try:
+            files = os.listdir(d)
+        except OSError:
+            continue
+        lower_map = {f.lower(): f for f in files}
+        for nama in QR_FILENAMES:
+            if nama.lower() in lower_map:
+                return os.path.join(d, lower_map[nama.lower()])
+        for f in files:
+            fl = f.lower()
+            if 'qr' in fl and fl.endswith(('.png', '.jpg', '.jpeg')):
+                return os.path.join(d, f)
+    return None
 
 def set_cell_border(cell, color=NAVY, width=Pt(1.5)):
     tcPr = cell._tc.get_or_add_tcPr()
@@ -837,6 +875,27 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     tb2 = slide1.shapes.add_textbox(Inches(1.5), Inches(4.25), Inches(10.333), Inches(0.8))
     p2 = tb2.text_frame.paragraphs[0]
     p2.text = f"ME {epi_week:02d} / {year}"; p2.font.size, p2.font.bold, p2.font.name, p2.font.color.rgb, p2.alignment = Pt(28), True, 'Calibri', NAVY, PP_ALIGN.CENTER
+
+    # --- QR Code (kanan bawah Slide 1) ---
+    # Ditambah SELEPAS kad putih & teks supaya berada di lapisan paling atas (tidak tertutup).
+    qr_path = cari_fail_qr()
+    if qr_path:
+        qr_size = Inches(QR_SIZE_INCH)
+        card_right = Inches(0.42 + 12.493)   # tepi kanan kad putih
+        card_bottom = Inches(0.42 + 6.66)    # tepi bawah kad putih
+        margin = Inches(0.3)
+        slide1.shapes.add_picture(
+            qr_path,
+            card_right - margin - qr_size,
+            card_bottom - margin - qr_size,
+            width=qr_size
+        )
+    else:
+        try:
+            senarai_fail = ", ".join(sorted(os.listdir('.')))
+        except OSError:
+            senarai_fail = "(tidak dapat dibaca)"
+        st.warning(f"Fail QR tidak dijumpai. Letak fail bernama 'qr.png' di folder yang sama dengan skrip. Fail dalam folder: {senarai_fail}")
 
     # --- Slide 2: Analisa e-Notifikasi ---
     s2 = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(s2, "Analisa e-Notifikasi", f"ME {epi_week:02d} /{year}")
