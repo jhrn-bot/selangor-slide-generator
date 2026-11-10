@@ -39,7 +39,9 @@ ILI_SARI_SHEET_ID = "1l9hK5USh1ajbuOC_bwY_R_8T1cmCL-E9c4fqGo5pyTg"
 # Letak fail QR di folder yang sama dengan skrip ini (root repo GitHub).
 # Nama fail yang dicari (tak sensitif huruf besar/kecil), ikut turutan.
 QR_FILENAMES = ["qr.png", "qr.jpg", "qr.jpeg", "qrcode.png", "qr_code.png", "qr code.png"]
-QR_SIZE_INCH = 1.3
+QR_SIZE_INCH = 2.5          # saiz sisi QR (inci)
+QR_MARGIN_RIGHT = 0.4       # jarak dari tepi kanan kad putih (inci)
+QR_MARGIN_BOTTOM = 0.25     # jarak dari tepi bawah kad putih (inci)
 
 VALID_DISTRICTS = [
     'GOMBAK', 'HULU LANGAT', 'HULU SELANGOR', 'KLANG', 
@@ -883,11 +885,10 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         qr_size = Inches(QR_SIZE_INCH)
         card_right = Inches(0.42 + 12.493)   # tepi kanan kad putih
         card_bottom = Inches(0.42 + 6.66)    # tepi bawah kad putih
-        margin = Inches(0.3)
         slide1.shapes.add_picture(
             qr_path,
-            card_right - margin - qr_size,
-            card_bottom - margin - qr_size,
+            card_right - Inches(QR_MARGIN_RIGHT) - qr_size,
+            card_bottom - Inches(QR_MARGIN_BOTTOM) - qr_size,
             width=qr_size
         )
     else:
