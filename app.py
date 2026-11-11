@@ -1,5 +1,6 @@
 import datetime
 import io
+import math
 import os
 import re
 import urllib.parse
@@ -13,8 +14,10 @@ from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.util import Inches, Pt
 from pptx.oxml.xmlchemy import OxmlElement
-from pptx.oxml.ns import qn
+from pptx.oxml import parse_xml
+from pptx.oxml.ns import qn, nsdecls
 from pptx.chart.data import CategoryChartData
+from pptx.chart.axis import ValueAxis
 from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION, XL_MARKER_STYLE
 
 # ---------------------------------------------------------
@@ -584,7 +587,7 @@ def fetch_graf_data():
         return pd.DataFrame()
 
 def fetch_ili_sari_data():
-    url = f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=AM1:AP120"
+    url = f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=AM1:AS120"
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as resp:
@@ -1442,105 +1445,111 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         )
         chart_is = chart_shape.chart
         
-        # Configure Combo Chart:
-        # Series 0 (Bilangan Kluster ILI - Bars) -> Primary Left Y-Axis (0 - 80)
-        # Series 1 (Kadar Kemasukan SARI - Red Line) & Series 2 (Kadar Konsultasi ILI - Green Line) -> Secondary Right Y-Axis (0 - 30)
+        # ---- Peranan setiap siri (ikut nama header; fallback ikut kedudukan lajur AN..AS) ----
+        # AN Bilangan Kluster ILI (palang) | AO Kadar Kemasukan SARI | AP Kadar Konsultasi ILI (paksi kanan)
+        # AQ Alert | AR Action | AS Median
+        def _role(name, i):
+            n = str(name).lower()
+            if i == 0: return 'bar'
+            if 'konsultasi' in n: return 'ili'
+            if 'sari' in n or 'kemasukan' in n: return 'sari'
+            if 'alert' in n: return 'alert'
+            if 'action' in n: return 'action'
+            if 'median' in n: return 'median'
+            return 'line'
+
+        roles = [_role(c, i) for i, c in enumerate(series_cols)]
+        if 'ili' not in roles and len(series_cols) > 2:
+            roles[2] = 'ili'
+        sec_idx = [i for i, r in enumerate(roles) if r == 'ili']
+
+        # ---- Skala paksi: kiri (kluster, SARI, Alert/Action/Median) & kanan (kadar konsultasi ILI) ----
+        def _nice_max(col_names, step, floor):
+            vals = []
+            for cn in col_names:
+                vals += pd.to_numeric(df_ili_clean[cn], errors='coerce').dropna().tolist()
+            return max(floor, math.ceil(max(vals or [0]) * 1.1 / step) * step)
+
+        left_max = _nice_max([c for i, c in enumerate(series_cols) if i not in sec_idx], 10, 80)
+        right_max = _nice_max([series_cols[i] for i in sec_idx], 5, 30)
+
         def configure_combo_ili_sari(chart_obj):
             plotArea = chart_obj.element.find(qn('c:chart')).find(qn('c:plotArea'))
             barChart = plotArea.find(qn('c:barChart'))
-            
             if barChart is None:
                 return
-                
-            catAx_id = plotArea.find(qn('c:catAx')).find(qn('c:axId')).get('val')
-            sec_valAx_id = "98765432"
-            
-            lineChart = OxmlElement('c:lineChart')
-            lineChart.append(OxmlElement('c:grouping'))
-            lineChart.find(qn('c:grouping')).set('val', 'standard')
-            
+
+            sec_cat_id, sec_val_id = "98765431", "98765432"
+            cat_id = plotArea.find(qn('c:catAx')).find(qn('c:axId')).get('val')
+            val_id = plotArea.find(qn('c:valAx')).find(qn('c:axId')).get('val')
+
+            def new_line_chart():
+                lc = OxmlElement('c:lineChart')
+                g = OxmlElement('c:grouping'); g.set('val', 'standard'); lc.append(g)
+                v = OxmlElement('c:varyColors'); v.set('val', '0'); lc.append(v)
+                return lc
+
+            def finish_line_chart(lc, ax1, ax2):
+                m = OxmlElement('c:marker'); m.set('val', '1'); lc.append(m)
+                for a_id in (ax1, ax2):
+                    e = OxmlElement('c:axId'); e.set('val', a_id); lc.append(e)
+
+            lc_prim, lc_sec = new_line_chart(), new_line_chart()
             for ser in list(barChart.findall(qn('c:ser'))):
                 idx_val = int(ser.find(qn('c:idx')).get('val'))
-                if idx_val in [1, 2]:
-                    barChart.remove(ser)
-                    
-                    # Remove dots/markers
-                    marker = ser.find(qn('c:marker'))
-                    if marker is None:
-                        marker = OxmlElement('c:marker')
-                        ser.append(marker)
-                    symbol = marker.find(qn('c:symbol'))
-                    if symbol is None:
-                        symbol = OxmlElement('c:symbol')
-                        marker.append(symbol)
-                    symbol.set('val', 'none')
-                    
-                    # Smooth = 0 (straight non-wavy lines)
-                    smooth = ser.find(qn('c:smooth'))
-                    if smooth is None:
-                        smooth = OxmlElement('c:smooth')
-                        ser.append(smooth)
-                    smooth.set('val', '0')
-                    
-                    lineChart.append(ser)
-                    
-            # Connect lineChart (BOTH SARI & ILI Lines) to Secondary Right Y-Axis (sec_valAx_id)
-            axId1 = OxmlElement('c:axId')
-            axId1.set('val', catAx_id)
-            axId2 = OxmlElement('c:axId')
-            axId2.set('val', sec_valAx_id)
-            lineChart.append(axId1)
-            lineChart.append(axId2)
-            
-            plotArea.insert(plotArea.index(barChart) + 1, lineChart)
-            
-            # Secondary valAx (Right Y-Axis)
-            sec_valAx = OxmlElement('c:valAx')
-            sec_axId = OxmlElement('c:axId')
-            sec_axId.set('val', sec_valAx_id)
-            sec_valAx.append(sec_axId)
-            
-            scaling = OxmlElement('c:scaling')
-            scaling.append(OxmlElement('c:orientation'))
-            scaling.find(qn('c:orientation')).set('val', 'minMax')
-            sec_valAx.append(scaling)
-            
-            delete = OxmlElement('c:delete')
-            delete.set('val', '0')
-            sec_valAx.append(delete)
-            
-            axPos = OxmlElement('c:axPos')
-            axPos.set('val', 'r') # right Y-axis
-            sec_valAx.append(axPos)
-            
-            tickLblPos = OxmlElement('c:tickLblPos')
-            tickLblPos.set('val', 'nextTo')
-            sec_valAx.append(tickLblPos)
-            
-            crossAx = OxmlElement('c:crossAx')
-            crossAx.set('val', catAx_id)
-            sec_valAx.append(crossAx)
-            
-            crosses = OxmlElement('c:crosses')
-            crosses.set('val', 'autoZero')
-            sec_valAx.append(crosses)
-            
-            plotArea.append(sec_valAx)
+                if idx_val == 0:
+                    continue                      # siri 0 kekal sebagai palang
+                barChart.remove(ser)
+                inv = ser.find(qn('c:invertIfNegative'))   # elemen khas palang, tidak sah untuk garisan
+                if inv is not None:
+                    ser.remove(inv)
+                (lc_sec if idx_val in sec_idx else lc_prim).append(ser)
+
+            insert_after = barChart
+            if len(lc_prim.findall(qn('c:ser'))) > 0:
+                finish_line_chart(lc_prim, cat_id, val_id)            # garisan paksi KIRI
+                insert_after.addnext(lc_prim); insert_after = lc_prim
+            if len(lc_sec.findall(qn('c:ser'))) > 0:
+                finish_line_chart(lc_sec, sec_cat_id, sec_val_id)     # garisan paksi KANAN
+                insert_after.addnext(lc_sec)
+
+            # Pasangan paksi sekunder: catAx (tersembunyi) + valAx (kanan)
+            sec_cat = parse_xml(
+                f'<c:catAx {nsdecls("c")}><c:axId val="{sec_cat_id}"/><c:scaling><c:orientation val="minMax"/></c:scaling>'
+                f'<c:delete val="1"/><c:axPos val="b"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/>'
+                f'<c:tickLblPos val="nextTo"/><c:crossAx val="{sec_val_id}"/><c:crosses val="autoZero"/>'
+                f'<c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>')
+            sec_val = parse_xml(
+                f'<c:valAx {nsdecls("c")}><c:axId val="{sec_val_id}"/><c:scaling><c:orientation val="minMax"/>'
+                f'<c:max val="{right_max}"/><c:min val="0"/></c:scaling><c:delete val="0"/><c:axPos val="r"/>'
+                f'<c:numFmt formatCode="General" sourceLinked="0"/><c:majorTickMark val="out"/><c:minorTickMark val="none"/>'
+                f'<c:tickLblPos val="nextTo"/><c:crossAx val="{sec_cat_id}"/><c:crosses val="max"/>'
+                f'<c:crossBetween val="between"/></c:valAx>')
+            last_val = plotArea.findall(qn('c:valAx'))[-1]
+            last_val.addnext(sec_val)
+            sec_val.addnext(sec_cat)
 
         if len(series_cols) > 1:
             configure_combo_ili_sari(chart_is)
-            
-        # Set Left Y-Axis Title (Primary: "Bilangan Kluster") via OXML
+
+        # Kawasan plot tetap supaya kedudukan garisan tahun boleh dikira tepat
+        IS_L, IS_T, IS_W, IS_H = 0.6, 1.4, 12.133, 4.8
+        IS_PX, IS_PY, IS_PW, IS_PH = 0.07, 0.04, 0.86, 0.72
+        set_plot_manual_layout(chart_is, IS_PX, IS_PY, IS_PW, IS_PH)
+
+        # Tajuk paksi kiri (mengikut carta rujukan: "Bilangan Kluster"; tiada tajuk paksi kanan)
         set_val_axis_title_oxml(chart_is, "Bilangan Kluster", axis_index=0, font_size=10, bold=True)
-        
-        val_axis_is = chart_is.value_axis
+
+        val_axis_is = ValueAxis(chart_is.element.find(qn('c:chart')).find(qn('c:plotArea')).findall(qn('c:valAx'))[0])
+        val_axis_is.minimum_scale = 0
+        val_axis_is.maximum_scale = left_max
         val_axis_is.has_major_gridlines = False
         val_axis_is.has_minor_gridlines = False
         val_axis_is.format.line.fill.background()
         val_axis_is.tick_labels.font.size = Pt(10)
         val_axis_is.tick_labels.font.name = 'Calibri'
         val_axis_is.tick_labels.font.bold = True
-        
+
         # Bottom X-Axis Title
         cat_axis_is = chart_is.category_axis
         cat_axis_is.has_title = True
@@ -1550,7 +1559,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         p_x_title.font.name = 'Calibri'
         p_x_title.font.bold = True
         p_x_title.font.color.rgb = NAVY
-        
+
         cat_axis_is.has_major_gridlines = False
         cat_axis_is.has_minor_gridlines = False
         cat_axis_is.format.line.fill.background()
@@ -1558,9 +1567,6 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         cat_axis_is.tick_labels.font.name = 'Calibri'
         cat_axis_is.tick_labels.font.bold = True
 
-        # Set Right Y-Axis Title (Secondary: "Kadar Konsultasi ILI / Kemasukan Kes SARI") via OXML
-        set_val_axis_title_oxml(chart_is, "Kadar Konsultasi ILI / Kemasukan Kes SARI", axis_index=1, font_size=10, bold=True)
-        
         # Legend styling - Bottom
         chart_is.has_legend = True
         chart_is.legend.position = XL_LEGEND_POSITION.BOTTOM
@@ -1568,63 +1574,75 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         chart_is.legend.font.size = Pt(10)
         chart_is.legend.font.name = 'Calibri'
         chart_is.legend.font.bold = True
-        
-        # Remove axis lines and gridlines from all axes in OXML (including secondary Y-axis)
+
+        # Buang garisan paksi & grid; seragamkan label paksi nilai (10pt bold) termasuk paksi kanan
         plotArea_is = chart_is.element.find(qn('c:chart')).find(qn('c:plotArea'))
         for valAx in plotArea_is.findall(qn('c:valAx')):
             grid = valAx.find(qn('c:majorGridlines'))
             if grid is not None:
                 valAx.remove(grid)
             remove_axis_line(valAx)
-            
-            # Format tick labels font to 10pt Bold
+
+            for old_tx in valAx.findall(qn('c:txPr')):
+                valAx.remove(old_tx)
             txPr = OxmlElement('c:txPr')
-            bodyPr = OxmlElement('a:bodyPr')
-            txPr.append(bodyPr)
+            txPr.append(OxmlElement('a:bodyPr'))
             txPr.append(OxmlElement('a:lstStyle'))
             p_lbl = OxmlElement('a:p')
             pPr_lbl = OxmlElement('a:pPr')
             defRPr_lbl = OxmlElement('a:defRPr')
-            defRPr_lbl.set('sz', '1000') # 10 pt
-            defRPr_lbl.set('b', '1')    # bold
+            defRPr_lbl.set('sz', '1000')
+            defRPr_lbl.set('b', '1')
             defRPr_lbl.set('bld', '1')
             pPr_lbl.append(defRPr_lbl)
             p_lbl.append(pPr_lbl)
             txPr.append(p_lbl)
             valAx.append(txPr)
-            
+
         for catAx in plotArea_is.findall(qn('c:catAx')):
             remove_axis_line(catAx)
-                
+
+        # Susun semula anak elemen paksi ikut turutan skema OOXML (elak fail perlu "repair" dalam PowerPoint)
+        AX_ORDER = ['axId', 'scaling', 'delete', 'axPos', 'majorGridlines', 'minorGridlines', 'title', 'numFmt',
+                    'majorTickMark', 'minorTickMark', 'tickLblPos', 'spPr', 'txPr', 'crossAx', 'crosses', 'crossesAt',
+                    'crossBetween', 'auto', 'lblAlgn', 'lblOffset', 'tickLblSkip', 'tickMarkSkip', 'noMultiLvlLbl',
+                    'majorUnit', 'minorUnit', 'dispUnits', 'extLst']
+        ax_rank = {qn('c:' + t): n for n, t in enumerate(AX_ORDER)}
+        for ax in plotArea_is.findall(qn('c:valAx')) + plotArea_is.findall(qn('c:catAx')):
+            kids = sorted(list(ax), key=lambda e: ax_rank.get(e.tag, 999))
+            for k in kids: ax.remove(k)
+            for k in kids: ax.append(k)
+
         try:
             chart_is.plots[0].gap_width = 30
         except:
             pass
-            
-        # Format Series Colors & Ensure Lines are Straight
-        if len(chart_is.series) > 0:
-            chart_is.series[0].format.fill.solid()
-            chart_is.series[0].format.fill.fore_color.rgb = RGBColor(68, 114, 196) # Soft Cobalt Blue Bar
-            
-        if len(chart_is.series) > 1:
-            chart_is.series[1].format.line.color.rgb = RGBColor(255, 0, 0) # Merah SARI
-            chart_is.series[1].format.line.width = Pt(2.25)
-            if hasattr(chart_is.series[1], 'smooth'):
-                chart_is.series[1].smooth = False
-            try:
-                chart_is.series[1].marker.style = XL_MARKER_STYLE.NONE
-            except:
-                pass
-            
-        if len(chart_is.series) > 2:
-            chart_is.series[2].format.line.color.rgb = RGBColor(84, 130, 53) # Hijau ILI
-            chart_is.series[2].format.line.width = Pt(2.25)
-            if hasattr(chart_is.series[2], 'smooth'):
-                chart_is.series[2].smooth = False
-            try:
-                chart_is.series[2].marker.style = XL_MARKER_STYLE.NONE
-            except:
-                pass
+
+        # Warna & gaya siri (ikut carta rujukan)
+        LINE_STYLE = {
+            'sari':   (RGBColor(255, 192, 0), 2.25),    # Kadar Kemasukan SARI - kuning keemasan
+            'ili':    (RGBColor(165, 165, 165), 2.25),  # Kadar Konsultasi ILI - kelabu (paksi kanan)
+            'alert':  (RGBColor(255, 255, 0), 2.25),    # Alert - kuning
+            'action': (RGBColor(255, 0, 0), 2.25),      # Action - merah
+            'median': (RGBColor(112, 173, 71), 2.25),   # Median - hijau
+            'line':   (RGBColor(127, 127, 127), 2.25),
+        }
+        for ser_obj in chart_is.series:
+            i = ser_obj.index
+            role = roles[i] if i < len(roles) else 'line'
+            if role == 'bar':
+                ser_obj.format.fill.solid()
+                ser_obj.format.fill.fore_color.rgb = RGBColor(68, 114, 196)   # Biru palang
+            else:
+                col, wid = LINE_STYLE.get(role, LINE_STYLE['line'])
+                ser_obj.format.line.color.rgb = col
+                ser_obj.format.line.width = Pt(wid)
+                if hasattr(ser_obj, 'smooth'):
+                    ser_obj.smooth = False
+                try:
+                    ser_obj.marker.style = XL_MARKER_STYLE.NONE
+                except:
+                    pass
 
         # Dashed Year Reset Line
         idx_reset = -1
@@ -1637,11 +1655,10 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                     break
             except ValueError:
                 pass
-        
+
         if idx_reset != -1:
-            plot_width = 12.133
-            x_pos = 0.6 + (plot_width / len(categories)) * idx_reset
-            line_is = sl_is.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(1.4), Inches(x_pos), Inches(6.2))
+            x_pos = IS_L + IS_W * (IS_PX + IS_PW * idx_reset / len(categories))
+            line_is = sl_is.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(1.25), Inches(x_pos), Inches(5.3))
             line_is.line.color.rgb = RGBColor(0, 0, 0)
             line_is.line.width = Pt(4)
             line_is.line.dash_style = 7
