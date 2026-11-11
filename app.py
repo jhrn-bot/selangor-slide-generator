@@ -475,7 +475,7 @@ def process_sampel_dataframe(df_sampel, target_epi_week, target_year):
 
 def format_prestasi_val(val, col_idx, row_idx):
     if pd.isna(val) or str(val).strip().upper() in ["NAN", "NONE", ""]:
-        return "-" if row_idx > 0 and col_idx >= 2 else ""
+        return "-" if row_idx > 0 and 2 <= col_idx <= 4 else ""
     
     val_str = str(val).strip()
     
@@ -664,11 +664,16 @@ def fetch_survelan_sampel_data():
     return pd.DataFrame()
 
 def fetch_prestasi_klinik_data():
-    url = f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=S2WER&range=M35:Q42"
+    url = f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=S2WER&range=M35:R42"
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as resp:
             raw_df = pd.read_csv(io.BytesIO(resp.read()), header=None)
+            # Buang baris kosong sepenuhnya (cth. baris header bercantum/merged) dan mula dari baris header 'PTJ'
+            raw_df = raw_df.dropna(how='all').reset_index(drop=True)
+            hdr_pos = raw_df.index[raw_df.iloc[:, 0].astype(str).str.strip().str.upper() == 'PTJ']
+            if len(hdr_pos) > 0:
+                raw_df = raw_df.iloc[hdr_pos[0]:].reset_index(drop=True)
             if not raw_df.empty:
                 return raw_df
     except Exception as e:
@@ -1766,36 +1771,37 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         sl_prestasi = prs.slides.add_slide(prs.slide_layouts[6])
         add_slide_header(sl_prestasi, "Prestasi Penghantaran Sampel ILI/SARI oleh Klinik Sentinel", f"ME {epi_week:02d} / {year}")
         
-        tb = sl_prestasi.shapes.add_table(len(df_prestasi), 5, Inches(0.8), Inches(1.6), Inches(11.733), Inches(4.8)).table
-        tb.columns[0].width = Inches(2.2)
-        tb.columns[1].width = Inches(2.7)
-        tb.columns[2].width = Inches(2.1)
-        tb.columns[3].width = Inches(2.533)
-        tb.columns[4].width = Inches(2.2)
-        
+        N_COLS_P = 6   # PTJ | Fasiliti Sentinel | Sampel Semasa | Peratus pencapaian | Kadar positiviti | Prestasi Penghantaran
+        tb = sl_prestasi.shapes.add_table(len(df_prestasi), N_COLS_P, Inches(0.8), Inches(1.6), Inches(11.733), Inches(1.3 + 0.62 * max(len(df_prestasi) - 1, 0))).table
+        set_row_heights(tb, 0.62, header_h=1.3)
+        for c_i, w_in in enumerate([1.6, 2.2, 1.6, 2.4, 1.9, 2.033]):
+            tb.columns[c_i].width = Inches(w_in)
+
+        FS_P = 16
         for r_i in range(len(df_prestasi)):
             row_vals = df_prestasi.iloc[r_i].tolist()
             is_last_row = (r_i == len(df_prestasi) - 1)
-            
+
             if is_last_row:
                 tb.cell(r_i, 0).merge(tb.cell(r_i, 1))
-                write_cell(tb.cell(r_i, 0), "JUMLAH", bold=True, size=18)
-                for c_i in range(2, 5):
+                write_cell(tb.cell(r_i, 0), "JUMLAH", bold=True, size=FS_P)
+                for c_i in range(2, N_COLS_P):
                     v_raw = row_vals[c_i] if c_i < len(row_vals) else ""
-                    write_cell(tb.cell(r_i, c_i), format_prestasi_val(v_raw, c_i, r_i), bold=True, size=18)
+                    write_cell(tb.cell(r_i, c_i), format_prestasi_val(v_raw, c_i, r_i), bold=True, size=FS_P)
             else:
-                for c_i in range(5):
+                for c_i in range(N_COLS_P):
                     v_raw = row_vals[c_i] if c_i < len(row_vals) else ""
-                    write_cell(tb.cell(r_i, c_i), format_prestasi_val(v_raw, c_i, r_i), bold=True, size=18)
-                    
+                    write_cell(tb.cell(r_i, c_i), format_prestasi_val(v_raw, c_i, r_i), bold=True, size=FS_P)
+
         for r_i, row in enumerate(tb.rows):
             is_hdr_or_tot = (r_i == 0 or r_i == len(tb.rows) - 1)
             for cell in row.cells:
                 set_cell_border(cell)
                 cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                cell.margin_left = Inches(0.05); cell.margin_right = Inches(0.05)
                 cell.fill.solid()
                 cell.fill.fore_color.rgb = LIGHT_GREY if is_hdr_or_tot else RGBColor(255, 255, 255)
-                
+
         add_bottom_banner(sl_prestasi)
 
     buffer = io.BytesIO(); prs.save(buffer); buffer.seek(0)
