@@ -1537,8 +1537,10 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         IS_PX, IS_PY, IS_PW, IS_PH = 0.07, 0.04, 0.86, 0.72
         set_plot_manual_layout(chart_is, IS_PX, IS_PY, IS_PW, IS_PH)
 
-        # Tajuk paksi kiri (mengikut carta rujukan: "Bilangan Kluster"; tiada tajuk paksi kanan)
+        # Tajuk paksi kiri
         set_val_axis_title_oxml(chart_is, "Bilangan Kluster", axis_index=0, font_size=10, bold=True)
+        # Tajuk paksi kanan (paksi sekunder)
+        set_val_axis_title_oxml(chart_is, "Kadar Konsultasi ILI / Kemasukan Kes SARI", axis_index=1, font_size=10, bold=True)
 
         val_axis_is = ValueAxis(chart_is.element.find(qn('c:chart')).find(qn('c:plotArea')).findall(qn('c:valAx'))[0])
         val_axis_is.minimum_scale = 0
