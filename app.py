@@ -284,6 +284,16 @@ def write_header_with_red_me(cell, prefix, me_str, size=13, newline=False):
     run2.text = me_str
     run2.font.size, run2.font.name, run2.font.bold, run2.font.color.rgb = Pt(size), 'Calibri', True, RGBColor(255, 0, 0)
 
+BASE_ROW_H = 0.4545   # tinggi baris piawai (inci) - rujuk jadual 11 baris x 5.0
+
+def calc_row_h(n_rows, max_total=5.0, base=BASE_ROW_H):
+    """Tinggi baris tetap. Jadual sikit baris kekal saiz piawai; jadual banyak baris dikecilkan supaya muat."""
+    return min(base, max_total / max(n_rows, 1))
+
+def set_row_heights(tb, row_h, header_h=None, header_rows=1):
+    for i, row in enumerate(tb.rows):
+        row.height = Inches(header_h if (header_h is not None and i < header_rows) else row_h)
+
 format_cell_stat = lambda tot, swasta, zero_as_dash=True: "-" if tot == 0 and zero_as_dash else "0" if tot == 0 else f"{tot} ({swasta})" if swasta > 0 else f"{tot}"
 
 def remove_axis_line(axis_elem):
@@ -832,7 +842,9 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         p = tb.text_frame.paragraphs[0]
         p.text = t1
         
-        if "Tanpa Wabak Vektor" in t1:
+        if "Episod Wabak" in t1:
+            p.font.size = Pt(24)
+        elif "Tanpa Wabak Vektor" in t1:
             p.font.size = Pt(20)
         elif "Sampel Survelan" in t1 or "Sentinel Selangor" in t1 or "Tren Keputusan" in t1:
             p.font.size = Pt(19)
@@ -937,7 +949,9 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     # --- Slide 3: Bilangan Daftar Kes ---
     s3 = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(s3, "Bilangan Daftar Kes Mengikut Penyakit", f"ME {epi_week:02d} / {year}")
     df_r = df_penyakit.head(19) if not df_penyakit.empty and len(df_penyakit)>19 else df_penyakit
-    tb3 = s3.shapes.add_table(len(df_r)+2, 4, Inches(0.8), Inches(1.5), Inches(11.733), Inches(5.0)).table
+    rh3 = calc_row_h(len(df_r)+2, 5.0)
+    tb3 = s3.shapes.add_table(len(df_r)+2, 4, Inches(0.8), Inches(1.5), Inches(11.733), Inches(rh3 * (len(df_r)+2))).table
+    set_row_heights(tb3, rh3)
     tb3.columns[0].width, tb3.columns[1].width, tb3.columns[2].width, tb3.columns[3].width = Inches(3.2), Inches(2.2), Inches(2.7), Inches(3.633)
     
     for j, h in enumerate(["Penyakit", f"ME {epi_week:02d}", f"≤ ME {epi_week:02d}/ {year}", "Peratus Daftar Kes\n(Bil Daftar Kes / Bil Notifikasi Kes Tersebut)"]): write_cell(tb3.cell(0, j), h)
@@ -992,7 +1006,9 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     # --- Slide 5 to 9: CT Tables ---
     def build_ct_slide(title, subtitle, df_ct):
         sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, title, subtitle)
-        tb = sl.shapes.add_table(len(df_ct)+3, 11, Inches(0.5), Inches(1.5), Inches(12.333), Inches(5.0)).table
+        rh_ct = calc_row_h(len(df_ct)+3, 5.0)
+        tb = sl.shapes.add_table(len(df_ct)+3, 11, Inches(0.5), Inches(1.5), Inches(12.333), Inches(rh_ct * (len(df_ct)+3))).table
+        set_row_heights(tb, rh_ct)
         tb.columns[0].width = Inches(2.333)
         for j in range(1, 11): tb.columns[j].width = Inches(1.0)
         
@@ -1032,30 +1048,34 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     # --- Slide 10 & 11: Lewat Notifikasi ---
     def build_lewat_slide(title, df_l):
         sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, title, f"ME {epi_week:02d} / {year}")
-        tb = sl.shapes.add_table(len(df_l)+2, 11, Inches(0.5), Inches(1.5), Inches(12.333), Inches(4.5)).table
-        tb.columns[0].width = Inches(2.0)
-        for j in range(1, 11): tb.columns[j].width = Inches(1.033)
-        for j, h in enumerate(["Diagnosis", "GOMBAK", "HULU\nLANGAT", "HULU\nSELANGOR", "KLANG", "KUALA\nLANGAT", "KUALA\nSELANGOR", "PETALING", "SABAK\nBERNAM", "SEPANG", "JUMLAH"]): write_cell(tb.cell(0, j), h, size=12)
+        LEWAT_HDR_H = 0.65
+        rh_l = calc_row_h(len(df_l)+2, 5.0)
+        tb = sl.shapes.add_table(len(df_l)+2, 11, Inches(0.5), Inches(1.5), Inches(12.333), Inches(LEWAT_HDR_H + rh_l * (len(df_l)+1))).table
+        set_row_heights(tb, rh_l, header_h=LEWAT_HDR_H)
+        tb.columns[0].width = Inches(1.733)
+        for j in range(1, 11): tb.columns[j].width = Inches(1.06)
+        for j, h in enumerate(["Diagnosis", "GOMBAK", "HULU\nLANGAT", "HULU\nSELANGOR", "KLANG", "KUALA\nLANGAT", "KUALA\nSELANGOR", "PETALING", "SABAK\nBERNAM", "SEPANG", "JUMLAH"]): write_cell(tb.cell(0, j), h, size=14)
 
         ds = {d: {'t': 0, 's': 0} for d in VALID_DISTRICTS}; tt = 0; ts = 0
         for i, (_, r) in enumerate(df_l.iterrows()):
             ri = i + 1
-            write_cell(tb.cell(ri, 0), str(r['DIAGNOSIS']), align_left=True, size=12)
+            write_cell(tb.cell(ri, 0), str(r['DIAGNOSIS']), align_left=True, size=14)
             for j, d in enumerate(VALID_DISTRICTS):
                 t, s = int(r[f"{d}_tot"]), int(r[f"{d}_swasta"])
                 ds[d]['t'] += t; ds[d]['s'] += s
-                write_cell(tb.cell(ri, j + 1), format_cell_stat(t, s, True), size=12)
+                write_cell(tb.cell(ri, j + 1), format_cell_stat(t, s, True), size=14)
             tt += int(r['TOTAL']); ts += int(r['SWASTA'])
-            write_cell(tb.cell(ri, 10), format_cell_stat(int(r['TOTAL']), int(r['SWASTA']), True), size=12)
+            write_cell(tb.cell(ri, 10), format_cell_stat(int(r['TOTAL']), int(r['SWASTA']), True), size=14)
 
         ri = len(tb.rows) - 1
-        write_cell(tb.cell(ri, 0), "JUMLAH", size=12)
-        for j, d in enumerate(VALID_DISTRICTS): write_cell(tb.cell(ri, j + 1), format_cell_stat(ds[d]['t'], ds[d]['s'], False), size=12)
-        write_cell(tb.cell(ri, 10), format_cell_stat(tt, ts, False), size=12)
+        write_cell(tb.cell(ri, 0), "JUMLAH", size=14)
+        for j, d in enumerate(VALID_DISTRICTS): write_cell(tb.cell(ri, j + 1), format_cell_stat(ds[d]['t'], ds[d]['s'], False), size=14)
+        write_cell(tb.cell(ri, 10), format_cell_stat(tt, ts, False), size=14)
 
         for i, row in enumerate(tb.rows):
             for j, cell in enumerate(row.cells):
                 set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                cell.margin_left = Inches(0.03); cell.margin_right = Inches(0.03)
                 cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i==0 or j==0 or i==len(tb.rows)-1 else RGBColor(255,255,255)
 
         tf = sl.shapes.add_textbox(Inches(0.5), Inches(6.85), Inches(6), Inches(0.4)).text_frame
@@ -1071,7 +1091,9 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             chunk = df_wabak.iloc[p_i * 10 : (p_i + 1) * 10]
             sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, "Bilangan Keseluruhan Episod Wabak / Kluster Mengikut Daerah", f"Sehingga ME {epi_week:02d} / {year}")
             
-            tb = sl.shapes.add_table(len(chunk) + 2, 12, Inches(0.4), Inches(1.5), Inches(12.533), Inches(5.0)).table
+            rh_w = calc_row_h(len(chunk) + 2, 5.0)
+            tb = sl.shapes.add_table(len(chunk) + 2, 12, Inches(0.4), Inches(1.5), Inches(12.533), Inches(rh_w * (len(chunk) + 2))).table
+            set_row_heights(tb, rh_w)
             tb.columns[0].width, tb.columns[1].width, tb.columns[11].width = Inches(0.7), Inches(2.4), Inches(1.333)
             for c in range(2, 11): tb.columns[c].width = Inches(0.9)
 
@@ -1103,7 +1125,9 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             chunk = df_bencana.iloc[p_i * 8 : (p_i + 1) * 8]
             sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, "Bilangan Insiden/Bencana Mengikut Daerah", f"Sehingga ME {epi_week:02d} / {year}")
             
-            tb = sl.shapes.add_table(len(chunk) + 2, 14, Inches(0.4), Inches(1.5), Inches(12.533), Inches(4.5)).table
+            rh_b = calc_row_h(len(chunk) + 2, 4.5)
+            tb = sl.shapes.add_table(len(chunk) + 2, 14, Inches(0.4), Inches(1.5), Inches(12.533), Inches(rh_b * (len(chunk) + 2))).table
+            set_row_heights(tb, rh_b)
             tb.columns[0].width = Inches(1.8)
             for c in range(1, 14): tb.columns[c].width = Inches(0.82)
             
