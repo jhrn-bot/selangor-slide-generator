@@ -250,7 +250,7 @@ def write_cell(cell, text, bold=True, align_left=False, is_red=False, size=12):
         run.font.color.rgb = RGBColor(255, 0, 0) if is_red else NAVY
     return tf.paragraphs[0]
 
-def write_wabak_cell(cell, text, bold=True, align_left=False, size=13):
+def write_wabak_cell(cell, text, bold=True, align_left=False, size=14):
     cell.text = ""
     tf = cell.text_frame
     tf.word_wrap = True
@@ -273,7 +273,7 @@ def write_wabak_cell(cell, text, bold=True, align_left=False, size=13):
         run.text = val_str
         run.font.size, run.font.name, run.font.bold, run.font.color.rgb = Pt(size), 'Calibri', bold, NAVY
 
-def write_header_with_red_me(cell, prefix, me_str, size=13, newline=False):
+def write_header_with_red_me(cell, prefix, me_str, size=14, newline=False):
     cell.text = ""
     p = cell.text_frame.paragraphs[0]
     p.alignment = PP_ALIGN.CENTER
@@ -283,6 +283,36 @@ def write_header_with_red_me(cell, prefix, me_str, size=13, newline=False):
     run2 = p.add_run()
     run2.text = me_str
     run2.font.size, run2.font.name, run2.font.bold, run2.font.color.rgb = Pt(size), 'Calibri', True, RGBColor(255, 0, 0)
+
+# --- Susun atur carta tren (lebar penuh, legend kanan) ---
+TREND_L, TREND_T, TREND_W, TREND_H = 0.4, 1.5, 12.533, 5.1     # kedudukan & saiz carta (inci)
+PLOT_X, PLOT_Y, PLOT_W, PLOT_H = 0.05, 0.03, 0.73, 0.87        # kawasan plot (pecahan daripada carta)
+
+def force_legend_pos(chart, pos='r'):
+    """Tulis legendPos secara eksplisit. python-pptx membuang nilai lalai 'r', lalu WPS letak legend di bawah."""
+    leg = chart.legend._element
+    lp = leg.find(qn('c:legendPos'))
+    if lp is None:
+        lp = OxmlElement('c:legendPos')
+        leg.insert(0, lp)
+    lp.set('val', pos)
+
+def set_plot_manual_layout(chart, x=PLOT_X, y=PLOT_Y, w=PLOT_W, h=PLOT_H):
+    """Tetapkan kawasan plot (inner) secara manual supaya kedudukan garisan tahun boleh dikira tepat."""
+    plotArea = chart.element.find(qn('c:chart')).find(qn('c:plotArea'))
+    layout = plotArea.find(qn('c:layout'))
+    if layout is None:
+        layout = OxmlElement('c:layout')
+        plotArea.insert(0, layout)
+    for ch in list(layout):
+        layout.remove(ch)
+    ml = OxmlElement('c:manualLayout')
+    for tag, val in [('c:layoutTarget', 'inner'), ('c:xMode', 'edge'), ('c:yMode', 'edge'),
+                     ('c:x', x), ('c:y', y), ('c:w', w), ('c:h', h)]:
+        el = OxmlElement(tag)
+        el.set('val', str(val))
+        ml.append(el)
+    layout.append(ml)
 
 BASE_ROW_H = 0.4545   # tinggi baris piawai (inci) - rujuk jadual 11 baris x 5.0
 
@@ -1094,8 +1124,8 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             rh_w = calc_row_h(len(chunk) + 2, 5.0)
             tb = sl.shapes.add_table(len(chunk) + 2, 12, Inches(0.4), Inches(1.5), Inches(12.533), Inches(rh_w * (len(chunk) + 2))).table
             set_row_heights(tb, rh_w)
-            tb.columns[0].width, tb.columns[1].width, tb.columns[11].width = Inches(0.7), Inches(2.4), Inches(1.333)
-            for c in range(2, 11): tb.columns[c].width = Inches(0.9)
+            tb.columns[0].width, tb.columns[1].width, tb.columns[11].width = Inches(0.55), Inches(2.2), Inches(1.333)
+            for c in range(2, 11): tb.columns[c].width = Inches(0.94)
 
             tb.cell(0, 2).merge(tb.cell(0, 10)); tb.cell(0, 0).merge(tb.cell(1, 0)); tb.cell(0, 1).merge(tb.cell(1, 1)); tb.cell(0, 11).merge(tb.cell(1, 11))
             write_wabak_cell(tb.cell(0, 0), "Bil"); write_wabak_cell(tb.cell(0, 1), "Wabak")
@@ -1116,6 +1146,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 ij = i >= 2 and row.cells[1].text_frame.text.strip().upper() == 'JUMLAH'
                 for j, cell in enumerate(row.cells):
                     set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                    cell.margin_left = Inches(0.04); cell.margin_right = Inches(0.04)
                     cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i in [0, 1] or j in [0, 1] or ij else RGBColor(255,255,255)
             add_bottom_banner(sl)
 
@@ -1126,28 +1157,29 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             sl = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(sl, "Bilangan Insiden/Bencana Mengikut Daerah", f"Sehingga ME {epi_week:02d} / {year}")
             
             rh_b = calc_row_h(len(chunk) + 2, 4.5)
-            tb = sl.shapes.add_table(len(chunk) + 2, 14, Inches(0.4), Inches(1.5), Inches(12.533), Inches(rh_b * (len(chunk) + 2))).table
+            tb = sl.shapes.add_table(len(chunk) + 2, 14, Inches(0.24), Inches(1.5), Inches(12.85), Inches(rh_b * (len(chunk) + 2))).table
             set_row_heights(tb, rh_b)
-            tb.columns[0].width = Inches(1.8)
-            for c in range(1, 14): tb.columns[c].width = Inches(0.82)
+            tb.rows[1].height = Inches(0.65)
+            for c, w_in in enumerate([1.3, 0.8, 0.8, 1.0, 0.75, 0.8, 1.0, 1.0, 0.8, 0.8, 0.9, 0.8, 0.85, 1.25]): tb.columns[c].width = Inches(w_in)
             
             tb.cell(0, 1).merge(tb.cell(0, 11)); tb.cell(0, 0).merge(tb.cell(1, 0)); tb.cell(0, 12).merge(tb.cell(1, 12)); tb.cell(0, 13).merge(tb.cell(1, 13))
-            write_wabak_cell(tb.cell(0, 0), "INSIDEN/BENCANA", size=13)
-            write_header_with_red_me(tb.cell(0, 1), "Pecahan kumulatif mengikut daerah", f"(ME {epi_week:02d} / {year})", size=13)
-            write_wabak_cell(tb.cell(0, 12), "JUMLAH", size=13); write_wabak_cell(tb.cell(0, 13), "DIISYTIHAR OLEH CPRC KKM", size=11)
-            for ci, ab in enumerate(["GOMBAK", "HULU\nLANGAT", "HULU\nSELANGOR", "KLANG", "KUALA\nLANGAT", "KUALA\nSELANGOR", "PETALING", "SABAK\nBERNAM", "SEPANG", "PK P.KLANG", "PK KLIA"]): write_wabak_cell(tb.cell(1, ci + 1), ab, size=11)
+            write_wabak_cell(tb.cell(0, 0), "INSIDEN/\nBENCANA", size=14)
+            write_header_with_red_me(tb.cell(0, 1), "Pecahan kumulatif mengikut daerah", f"(ME {epi_week:02d} / {year})", size=14)
+            write_wabak_cell(tb.cell(0, 12), "JUMLAH", size=14); write_wabak_cell(tb.cell(0, 13), "DIISYTIHAR OLEH CPRC KKM", size=14)
+            for ci, ab in enumerate(["GOMBAK", "HULU\nLANGAT", "HULU\nSELANGOR", "KLANG", "KUALA\nLANGAT", "KUALA\nSELANGOR", "PETALING", "SABAK\nBERNAM", "SEPANG", "PK P.KLANG", "PK KLIA"]): write_wabak_cell(tb.cell(1, ci + 1), ab, size=14)
 
             for ri, (_, r) in enumerate(chunk.iterrows()):
                 cr = ri + 2
                 in_name = str(r.iloc[0]).strip()
                 ij = in_name.upper() == 'JUMLAH'
-                write_wabak_cell(tb.cell(cr, 0), in_name, align_left=True, size=13)
-                for ci in range(1, 14): write_wabak_cell(tb.cell(cr, ci), r.iloc[ci] if ci < len(r) else "-", size=13)
+                write_wabak_cell(tb.cell(cr, 0), in_name, align_left=True, size=14)
+                for ci in range(1, 14): write_wabak_cell(tb.cell(cr, ci), r.iloc[ci] if ci < len(r) else "-", size=14)
 
             for i, row in enumerate(tb.rows):
                 ij = i >= 2 and row.cells[0].text_frame.text.strip().upper() == 'JUMLAH'
                 for j, cell in enumerate(row.cells):
                     set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                    cell.margin_left = Inches(0.03); cell.margin_right = Inches(0.03)
                     cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i in [0, 1] or j == 0 or ij else RGBColor(255,255,255)
             add_bottom_banner(sl)
 
@@ -1195,12 +1227,14 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             
         chart = sl.shapes.add_chart(
             XL_CHART_TYPE.COLUMN_STACKED_100, 
-            Inches(0.4), Inches(1.5), Inches(9.2), Inches(5.1), 
+            Inches(TREND_L), Inches(TREND_T), Inches(TREND_W), Inches(TREND_H), 
             chart_data
         ).chart
         
         chart.has_legend = True
         chart.legend.position = XL_LEGEND_POSITION.RIGHT
+        force_legend_pos(chart, 'r')
+        set_plot_manual_layout(chart)
         chart.legend.include_in_layout = False
         chart.legend.font.size = Pt(8.5)
         chart.legend.font.name = 'Calibri'
@@ -1254,9 +1288,10 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 pass
         
         if idx_reset != -1:
-            plot_width = 9.2
-            x_pos = 0.4 + (plot_width / len(categories)) * idx_reset
-            line = sl.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(1.5), Inches(x_pos), Inches(6.5))
+            x_pos = TREND_L + TREND_W * (PLOT_X + PLOT_W * idx_reset / len(categories))
+            y_top = TREND_T + TREND_H * PLOT_Y
+            y_bot = TREND_T + TREND_H * (PLOT_Y + PLOT_H)
+            line = sl.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(y_top), Inches(x_pos), Inches(y_bot))
             line.line.color.rgb = RGBColor(0, 0, 0)
             line.line.width = Pt(4)
             line.line.dash_style = 7
@@ -1287,12 +1322,14 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
             
         chart_nv = sl_nv.shapes.add_chart(
             XL_CHART_TYPE.COLUMN_STACKED_100, 
-            Inches(0.4), Inches(1.5), Inches(9.2), Inches(5.1), 
+            Inches(TREND_L), Inches(TREND_T), Inches(TREND_W), Inches(TREND_H), 
             chart_data_nv
         ).chart
         
         chart_nv.has_legend = True
         chart_nv.legend.position = XL_LEGEND_POSITION.RIGHT
+        force_legend_pos(chart_nv, 'r')
+        set_plot_manual_layout(chart_nv)
         chart_nv.legend.include_in_layout = False
         chart_nv.legend.font.size = Pt(8.5)
         chart_nv.legend.font.name = 'Calibri'
@@ -1346,9 +1383,10 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
                 pass
         
         if idx_reset != -1:
-            plot_width = 9.2
-            x_pos = 0.4 + (plot_width / len(categories)) * idx_reset
-            line_nv = sl_nv.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(1.5), Inches(x_pos), Inches(6.5))
+            x_pos = TREND_L + TREND_W * (PLOT_X + PLOT_W * idx_reset / len(categories))
+            y_top = TREND_T + TREND_H * PLOT_Y
+            y_bot = TREND_T + TREND_H * (PLOT_Y + PLOT_H)
+            line_nv = sl_nv.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(y_top), Inches(x_pos), Inches(y_bot))
             line_nv.line.color.rgb = RGBColor(0, 0, 0)
             line_nv.line.width = Pt(4)
             line_nv.line.dash_style = 7
