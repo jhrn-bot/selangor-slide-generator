@@ -287,6 +287,7 @@ def write_header_with_red_me(cell, prefix, me_str, size=14, newline=False):
 # --- Susun atur carta tren (lebar penuh, legend kanan) ---
 TREND_L, TREND_T, TREND_W, TREND_H = 0.4, 1.5, 12.533, 5.1     # kedudukan & saiz carta (inci)
 PLOT_X, PLOT_Y, PLOT_W, PLOT_H = 0.05, 0.03, 0.73, 0.87        # kawasan plot (pecahan daripada carta)
+YEAR_LINE_TOP, YEAR_LINE_BOT = 1.12, 6.2                          # panjang garisan pemisah tahun (inci, dari atas slide)
 
 def force_legend_pos(chart, pos='r'):
     """Tulis legendPos secara eksplisit. python-pptx membuang nilai lalai 'r', lalu WPS letak legend di bawah."""
@@ -979,27 +980,33 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
     # --- Slide 3: Bilangan Daftar Kes ---
     s3 = prs.slides.add_slide(prs.slide_layouts[6]); add_slide_header(s3, "Bilangan Daftar Kes Mengikut Penyakit", f"ME {epi_week:02d} / {year}")
     df_r = df_penyakit.head(19) if not df_penyakit.empty and len(df_penyakit)>19 else df_penyakit
-    rh3 = calc_row_h(len(df_r)+2, 5.0)
-    tb3 = s3.shapes.add_table(len(df_r)+2, 4, Inches(0.8), Inches(1.5), Inches(11.733), Inches(rh3 * (len(df_r)+2))).table
-    set_row_heights(tb3, rh3)
+    # Saiz baris & font dikira ikut bilangan baris supaya jadual sentiasa muat dalam slide (ruang 1.5" - 6.75")
+    n3 = len(df_r) + 2
+    hdr3 = 0.42
+    rh3 = min(BASE_ROW_H, (5.25 - hdr3) / max(n3 - 1, 1))
+    fs3 = 12 if rh3 >= 0.34 else 11 if rh3 >= 0.27 else 10
+    mati_fs3 = Pt(max(fs3 - 2, 8))
+    tb3 = s3.shapes.add_table(n3, 4, Inches(0.8), Inches(1.5), Inches(11.733), Inches(hdr3 + rh3 * (n3 - 1))).table
+    set_row_heights(tb3, rh3, header_h=hdr3)
     tb3.columns[0].width, tb3.columns[1].width, tb3.columns[2].width, tb3.columns[3].width = Inches(3.2), Inches(2.2), Inches(2.7), Inches(3.633)
     
-    for j, h in enumerate(["Penyakit", f"ME {epi_week:02d}", f"≤ ME {epi_week:02d}/ {year}", "Peratus Daftar Kes\n(Bil Daftar Kes / Bil Notifikasi Kes Tersebut)"]): write_cell(tb3.cell(0, j), h)
+    for j, h in enumerate(["Penyakit", f"ME {epi_week:02d}", f"≤ ME {epi_week:02d}/ {year}", "Peratus Daftar Kes\n(Bil Daftar Kes / Bil Notifikasi Kes Tersebut)"]): write_cell(tb3.cell(0, j), h, size=fs3)
     for i, (_, r) in enumerate(df_r.iterrows()):
         r_i = i + 1
-        write_cell(tb3.cell(r_i, 0), str(r['Penyakit']), align_left=True); write_cell(tb3.cell(r_i, 1), f"{int(r['Semasa']):,}")
-        p = write_cell(tb3.cell(r_i, 2), f"{int(r['Kumulatif']):,}")
-        if r['Mati'] > 0: run=p.add_run(); run.text=f" ({int(r['Mati'])})"; run.font.color.rgb=RGBColor(255,0,0); run.font.size=Pt(10); run.font.bold=True
-        write_cell(tb3.cell(r_i, 3), f"{int(r['Peratus'])}%") 
+        write_cell(tb3.cell(r_i, 0), str(r['Penyakit']), align_left=True, size=fs3); write_cell(tb3.cell(r_i, 1), f"{int(r['Semasa']):,}", size=fs3)
+        p = write_cell(tb3.cell(r_i, 2), f"{int(r['Kumulatif']):,}", size=fs3)
+        if r['Mati'] > 0: run=p.add_run(); run.text=f" ({int(r['Mati'])})"; run.font.color.rgb=RGBColor(255,0,0); run.font.size=mati_fs3; run.font.bold=True
+        write_cell(tb3.cell(r_i, 3), f"{int(r['Peratus'])}%", size=fs3) 
     
     r_i = len(tb3.rows)-1
-    write_cell(tb3.cell(r_i, 0), "JUMLAH"); write_cell(tb3.cell(r_i, 1), f"{int(df_penyakit['Semasa'].sum() if not df_penyakit.empty else 0):,}")
-    p = write_cell(tb3.cell(r_i, 2), f"{int(df_penyakit['Kumulatif'].sum() if not df_penyakit.empty else 0):,}")
-    if (m:=df_penyakit['Mati'].sum() if not df_penyakit.empty else 0) > 0: run=p.add_run(); run.text=f" ({int(m)})"; run.font.color.rgb=RGBColor(255,0,0); run.font.size=Pt(10); run.font.bold=True
+    write_cell(tb3.cell(r_i, 0), "JUMLAH", size=fs3); write_cell(tb3.cell(r_i, 1), f"{int(df_penyakit['Semasa'].sum() if not df_penyakit.empty else 0):,}", size=fs3)
+    p = write_cell(tb3.cell(r_i, 2), f"{int(df_penyakit['Kumulatif'].sum() if not df_penyakit.empty else 0):,}", size=fs3)
+    if (m:=df_penyakit['Mati'].sum() if not df_penyakit.empty else 0) > 0: run=p.add_run(); run.text=f" ({int(m)})"; run.font.color.rgb=RGBColor(255,0,0); run.font.size=mati_fs3; run.font.bold=True
     
     for i, row in enumerate(tb3.rows):
         for j, cell in enumerate(row.cells):
             set_cell_border(cell); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            cell.margin_top = Inches(0.02); cell.margin_bottom = Inches(0.02)
             cell.fill.solid(); cell.fill.fore_color.rgb = LIGHT_GREY if i==0 or i==len(tb3.rows)-1 else RGBColor(255,255,255)
 
     tf3 = s3.shapes.add_textbox(Inches(0.8), Inches(6.9), Inches(6), Inches(0.4)).text_frame
@@ -1289,8 +1296,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         
         if idx_reset != -1:
             x_pos = TREND_L + TREND_W * (PLOT_X + PLOT_W * idx_reset / len(categories))
-            y_top = TREND_T + TREND_H * PLOT_Y
-            y_bot = TREND_T + TREND_H * (PLOT_Y + PLOT_H)
+            y_top, y_bot = YEAR_LINE_TOP, YEAR_LINE_BOT
             line = sl.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(y_top), Inches(x_pos), Inches(y_bot))
             line.line.color.rgb = RGBColor(0, 0, 0)
             line.line.width = Pt(4)
@@ -1384,8 +1390,7 @@ def generate_pptx(stats_semasa, stats_kumulatif, df_penyakit, df_district, df_be
         
         if idx_reset != -1:
             x_pos = TREND_L + TREND_W * (PLOT_X + PLOT_W * idx_reset / len(categories))
-            y_top = TREND_T + TREND_H * PLOT_Y
-            y_bot = TREND_T + TREND_H * (PLOT_Y + PLOT_H)
+            y_top, y_bot = YEAR_LINE_TOP, YEAR_LINE_BOT
             line_nv = sl_nv.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x_pos), Inches(y_top), Inches(x_pos), Inches(y_bot))
             line_nv.line.color.rgb = RGBColor(0, 0, 0)
             line_nv.line.width = Pt(4)
