@@ -619,7 +619,7 @@ def fetch_ili_sari_data():
 
 def fetch_survelan_sampel_data():
     urls = [
-        f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=AR1:AU120",
+        f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Sheet23&range=BC1:BF106",
         f"https://docs.google.com/spreadsheets/d/{ILI_SARI_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=ILIMakmal&range=C1:F120"
     ]
     for url in urls:
